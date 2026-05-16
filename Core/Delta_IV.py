@@ -148,7 +148,7 @@ def _configure_index_data(index_key):
     selected_index_key = normalized_index_key
     spot_token = cfg["spot_token"]
     strike_step = cfg["strike_step"]
-    live_data = {}
+    live_data.clear()
     instrument_lookup_by_exchange = {}
     _publish_option_instrument_cache()
 

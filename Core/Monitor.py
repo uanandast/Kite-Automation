@@ -43,6 +43,7 @@ kite.set_access_token(access_token)
 
 pnl_total = 0
 Current_pos_credit = 0
+available_margin = 0
 
 # Track exiting state
 is_exiting = False
