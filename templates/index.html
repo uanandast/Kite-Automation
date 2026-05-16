@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Delta IV Dashboard</title>
+    
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+        /* CSS Variables for premium modern theme management */
+        :root {
+            /* Base Colors matching ApexCharts background */
+            --bg-main: #0b1220; /* Deep navy/slate dark */
+            --bg-card: rgba(18, 28, 45, 0.6); /* Glassmorphic card */
+            --bg-card-hover: rgba(22, 34, 55, 0.8);
+            --bg-header: rgba(11, 18, 32, 0.85);
+            
+            /* Borders & Dividers */
+            --border-light: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(31, 139, 255, 0.3);
+            
+            /* Typography */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            /* Accents & Signals */
+            --accent-primary: #1f8bff; /* Modern Blue */
+            --accent-glow: rgba(31, 139, 255, 0.4);
+            --accent-secondary: #f59e0b; /* Amber/Gold */
+            --color-positive: #21c55d; /* Modern Green */
+            --color-negative: #ff5b5b; /* Modern Red */
+            
+            /* Option specific */
+            --call-bg: rgba(255, 91, 91, 0.04);
+            --call-header: rgba(255, 91, 91, 0.12);
+            --put-bg: rgba(33, 197, 93, 0.04);
+            --put-header: rgba(33, 197, 93, 0.12);
+
+            /* Split layout variables */
+            --live-panel-size: 62%;
+            --main-panel-gap: 14px;
+        }
+
+        /* General Body Styles */
+        body {
+            background-color: var(--bg-main);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(31, 139, 255, 0.04), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(33, 197, 93, 0.04), transparent 25%),
+                linear-gradient(160deg, rgba(15, 23, 42, 0.85), rgba(8, 47, 73, 0.2));
+            background-attachment: fixed;
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, sans-serif;
+            margin: 0;
+            padding: 0 0 72px 0;
+            line-height: 1.5;
+        }
+
+        .dashboard-shell {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 0 40px;
+        }
+
+        .top-cockpit {
+            margin-top: 8px;
+            margin-bottom: 0;
+            padding: 10px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border-light);
+            background: linear-gradient(135deg, rgba(11, 18, 32, 0.84), rgba(15, 23, 42, 0.62));
+            backdrop-filter: blur(8px);
+            box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+        }
+        .cockpit-controls {
+            display: none;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 12px;
+            justify-content: center;
+            align-items: center;
+        }
+        .cockpit-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            padding: 8px 10px;
+        }
+        .cockpit-control label {
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .cockpit-control select {
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 0.9rem;
+            outline: none;
+            cursor: pointer;
+        }
+        .cockpit-vitals {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+        }
+        .vital-card {
+            background: rgba(0, 0, 0, 0.26);
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+        .vital-card.is-hidden {
+            display: none;
+        }
+        .vital-label {
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 3px;
+        }
+        .vital-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+        .vital-value.small {
+            font-size: 1rem;
+        }
+
+        /* Main Header - Glassmorphic */
+        .main-header {
+            background-color: var(--bg-header);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 18px 40px;
+            border-bottom: 1px solid var(--border-light);
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+        .main-header h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .market-status {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            font-size: 0.95rem;
+        }
+        .market-status .symbol {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .market-status .price {
+            font-weight: 700;
+            font-size: 1.1rem;
+            padding: 4px 12px;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-light);
+            display: inline-flex;
+            align-items: center;
+        }
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .main-header .cockpit-control {
+            padding: 5px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-light);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .index-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .index-selector label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .index-selector select {
+            background: rgba(0, 0, 0, 0.3);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 14px;
+            padding-right: 32px;
+        }
+        .index-selector select:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+        .index-selector select:disabled {
+            opacity: 0.5;
+            cursor: wait;
+        }
+
+        /* Main Content Grid */
+        .main-content {
+            display: flex;
+            align-items: stretch;
+            height: clamp(580px, 70dvh, 820px);
+            gap: var(--main-panel-gap);
+            padding: 24px 0;
+            margin: 0;
+        }
+
+        /* Premium Card Styles */
+        .card {
+            background-color: var(--bg-card);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-radius: 16px;
+            padding: 28px;
+            border: 1px solid var(--border-light);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        #live-pnl-card {
+            flex: 0 0 var(--live-panel-size);
+            height: 100%;
+            min-height: 0;
+            max-height: none;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            overflow: hidden;
+            padding: 0;
+        }
+        #live-pnl-card .controls-zone {
+            flex: 0 0 auto;
+            padding: 12px 20px 4px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow: visible;
+        }
+        #live-pnl-card .controls-zone .card-title {
+            margin: 0;
+        }
+        #live-pnl-card .chart-zone {
+            flex: 1 1 0;
+            min-height: 0;
+            height: 100%;
+            box-sizing: border-box;
+            padding: 0 20px 16px 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #strategy-card {
+            flex: 1 1 auto;
+            height: 100%;
+            min-height: 0;
+            max-height: none;
+            box-sizing: border-box;
+            overflow: auto;
+        }
+        #main-splitter {
+            align-self: stretch;
+        }
+        .panel-splitter {
+            width: 10px;
+            cursor: col-resize;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(31, 139, 255, 0.5), rgba(31, 139, 255, 0.1));
+            border: 1px solid rgba(31, 139, 255, 0.35);
+            align-self: stretch;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+            touch-action: none;
+            position: relative;
+        }
+        .panel-splitter::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 42px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.65);
+        }
+        .panel-splitter:hover,
+        .panel-splitter.dragging {
+            box-shadow: 0 0 16px rgba(31, 139, 255, 0.45);
+            transform: scaleX(1.08);
+        }
+        .card:hover {
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 0 0 24px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        /* Left Panel: P&L Chart */
+        #pnl-chart {
+            flex: 1 1 0; 
+            min-height: 0;
+            width: 100%;
+            overflow: hidden;
+            border-radius: 12px;
+        }
+        #live-pnl-card .shift-panel {
+            max-height: none;
+            overflow: visible;
+        }
+        #pnl-chart .apexcharts-canvas,
+        #pnl-chart .apexcharts-canvas > svg {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .chart-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: flex-start;
+            margin-top: 0;
+            position: relative;
+            z-index: 2;
+        }
+        .shift-panel {
+            width: 100%;
+            margin-top: 10px;
+            padding: 12px;
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.22);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .shift-panel-title {
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            font-weight: 700;
+        }
+        .shift-legs-list {
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 8px;
+            background: rgba(2, 6, 23, 0.45);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .shift-leg-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        .shift-leg-item input[type="checkbox"] {
+            accent-color: var(--accent-primary);
+            flex-shrink: 0;
+        }
+        .shift-leg-symbol {
+            font-weight: 700;
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .shift-leg-side {
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .shift-leg-side.short {
+            background: rgba(255, 91, 91, 0.15);
+            color: var(--color-negative);
+        }
+        .shift-leg-side.long {
+            background: rgba(33, 197, 93, 0.15);
+            color: var(--color-positive);
+        }
+        .shift-leg-qty-label {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+        .shift-qty-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 2px;
+        }
+        .shift-qty-toggle input[type="checkbox"] {
+            accent-color: var(--accent-primary);
+        }
+        .shift-qty-toggle label {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .shift-qty-input {
+            width: 72px;
+            height: 36px;
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            background: rgba(2, 6, 23, 0.55);
+            color: var(--text-primary);
+            font-size: 0.88rem;
+            font-weight: 700;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            outline: none;
+            padding: 0 6px;
+            flex-shrink: 0;
+            transition: border-color 0.2s;
+        }
+        .shift-qty-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+        .shift-qty-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .shift-empty {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin: 2px 0;
+        }
+        .shift-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .shift-controls label {
+            font-size: 0.84rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .shift-count-input {
+            width: 96px;
+            height: 38px;
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            background: rgba(2, 6, 23, 0.55);
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+            outline: none;
+            padding: 0 8px;
+        }
+        .shift-count-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+        .shift-action-btn {
+            min-width: 148px;
+            height: 38px;
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .shift-action-btn:hover {
+            transform: translateY(-1px);
+        }
+        .shift-action-btn:active {
+            transform: translateY(0);
+        }
+        .shift-action-btn.near {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border-color: rgba(245, 158, 11, 0.35);
+            box-shadow: 0 4px 12px rgba(217, 119, 6, 0.25);
+        }
+        .shift-action-btn.near:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(217, 119, 6, 0.4);
+        }
+        .shift-action-btn.away {
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+            border-color: rgba(33, 197, 93, 0.35);
+            box-shadow: 0 4px 12px rgba(21, 128, 61, 0.28);
+        }
+        .shift-action-btn.away:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(21, 128, 61, 0.42);
+        }
+        .shift-action-btn.exit {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            border-color: rgba(239, 68, 68, 0.4);
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.24);
+        }
+        .shift-action-btn.exit:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(220, 38, 38, 0.42);
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none !important;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
+        }
+        .btn-danger:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+            background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);
+        }
+        .btn-warning:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(217, 119, 6, 0.4);
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #475569 0%, #334155 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(71, 85, 105, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn-secondary:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(71, 85, 105, 0.4);
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+        }
+
+        /* Toasts */
+        .toast-container {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 9999;
+            pointer-events: none;
+        }
+        .toast {
+            min-width: 280px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 4px 1fr auto;
+            gap: 16px;
+            align-items: center;
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: auto;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        .toast-bar {
+            height: 100%;
+            border-radius: 4px;
+            background: var(--color-positive);
+            box-shadow: 0 0 8px var(--color-positive);
+        }
+        .toast.error .toast-bar {
+            background: var(--color-negative);
+            box-shadow: 0 0 8px var(--color-negative);
+        }
+        .toast-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        .toast-message {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .toast-close {
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 20px;
+            cursor: pointer;
+            transition: color 0.2s;
+            padding: 4px;
+        }
+        .toast-close:hover {
+            color: var(--text-primary);
+        }
+
+        /* Right Panel: Recommendations & P&L */
+        #recommendation {
+            margin-bottom: 24px;
+            flex-grow: 1;
+        }
+        .recommendation-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-light);
+        }
+        .recommendation-table th, .recommendation-table td {
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .recommendation-table th {
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.8rem;
+        }
+        .recommendation-table tr:last-child td {
+            border-bottom: none;
+        }
+        .recommendation-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .recommendation-title {
+            display: none !important; /* Hide the generated double title from JS */
+        }
+
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .metric {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .metric .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .metric .value {
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+
+        #net-pnl {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 1.05rem;
+            padding: 24px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            border: 1px solid var(--border-light);
+            margin-top: 10px;
+        }
+
+        #net-pnl .label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 8px;
+        }
+
+        #net-pnl .value {
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+
+        .pnl-group,
+        .credit-group,
+        .delta-group {
+            display: flex;
+            align-items: center;
+        }
+
+        .strangle-status-bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 50px;
+            padding: 0 18px;
+            background: #0f1419;
+            border-top: 1px solid rgba(40, 132, 255, 0.4);
+            box-shadow:
+                0 -6px 18px rgba(6, 10, 18, 0.9),
+                0 0 18px rgba(40, 132, 255, 0.2);
+            z-index: 1300;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 18px;
+            font-variant-numeric: tabular-nums;
+        }
+        .status-left-label {
+            display: none;
+        }
+        .status-left-metrics {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .status-inline-metric {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 5px;
+            min-width: 0;
+            font-size: 12px;
+        }
+        .status-inline-metric .metric-label {
+            color: #8fa5c6;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+        .status-inline-metric .metric-value {
+            color: #e3ecfb;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .status-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-width: 290px;
+        }
+        .status-metric-title {
+            color: #9bb4d7;
+            font-size: 11px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-right: 2px;
+        }
+        .status-pnl-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-arrow {
+            font-size: 14px;
+            transition: transform 0.25s ease;
+        }
+        .status-arrow.negative {
+            transform: rotate(180deg);
+        }
+        .status-pnl-value {
+            font-size: 24px;
+            line-height: 1;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            transition: color 0.2s ease;
+        }
+        .status-pnl-value.positive,
+        .status-arrow.positive {
+            color: #00ff88;
+        }
+        .status-pnl-value.negative,
+        .status-arrow.negative {
+            color: #ff4d4d;
+        }
+        .status-sparkline {
+            width: 54px;
+            height: 20px;
+            display: none;
+        }
+        .status-sparkline path {
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .status-sparkline.positive path {
+            stroke: #00ff88;
+        }
+        .status-sparkline.negative path {
+            stroke: #ff4d4d;
+        }
+        .status-right {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 16px;
+        }
+        .status-mini-metric {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #b0b0b0;
+            white-space: nowrap;
+        }
+        .status-mini-metric .value {
+            transition: color 0.2s ease;
+        }
+        .status-delta-value.positive {
+            color: #00ff88;
+        }
+        .status-delta-value.neutral {
+            color: #f59e0b;
+        }
+        .status-delta-value.negative {
+            color: #ff4d4d;
+        }
+        .status-tooltip {
+            position: relative;
+            cursor: help;
+        }
+        .status-tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 8px);
+            transform: translateX(-50%) translateY(4px);
+            opacity: 0;
+            pointer-events: none;
+            font-size: 11px;
+            color: #dbe9ff;
+            background: rgba(10, 14, 23, 0.98);
+            border: 1px solid rgba(124, 169, 255, 0.5);
+            border-radius: 7px;
+            padding: 7px 9px;
+            white-space: nowrap;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
+        }
+        .status-tooltip:hover::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        /* Specific Table Cell Styling */
+        .call-header { 
+            background-color: var(--call-header) !important; 
+            color: var(--color-negative) !important; 
+            border-bottom: 2px solid var(--color-negative) !important;
+        }
+        .put-header { 
+            background-color: var(--put-header) !important; 
+            color: var(--color-positive) !important; 
+            border-bottom: 2px solid var(--color-positive) !important;
+        }
+        .calls { 
+            background-color: var(--call-bg); 
+        }
+        .puts { 
+            background-color: var(--put-bg); 
+        }
+
+        .strike {
+            background-color: rgba(0, 0, 0, 0.2);
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            border-left: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+        }
+        .atm-strike {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #3b82f6 100%) !important;
+            color: #fff !important;
+            font-weight: 800;
+            box-shadow: 0 0 15px var(--accent-glow);
+            border: none !important;
+        }
+        
+        .atm-row td {
+            background: rgba(31, 139, 255, 0.08) !important;
+            border-top: 1px solid rgba(31, 139, 255, 0.4) !important;
+            border-bottom: 1px solid rgba(31, 139, 255, 0.4) !important;
+        }
+
+        /* Utility Classes with Glow Multipliers */
+        .positive { 
+            color: var(--color-positive); 
+            text-shadow: 0 0 10px rgba(33, 197, 93, 0.3);
+        }
+        .negative { 
+            color: var(--color-negative); 
+            text-shadow: 0 0 10px rgba(255, 91, 91, 0.3);
+        }
+        .neutral { color: var(--text-muted); }
+        .highlight { color: var(--accent-secondary); font-weight: 600; }
+
+        /* Responsive Design */
+        @media (max-width: 1400px) {
+            .dashboard-shell {
+                padding: 0 20px;
+            }
+        }
+        @media (max-height: 900px) and (min-width: 1024px) {
+            .main-header {
+                padding: 12px 28px;
+            }
+            .main-header h1 {
+                font-size: 1.2rem;
+            }
+            .market-status {
+                gap: 14px;
+                font-size: 0.88rem;
+            }
+            .top-cockpit {
+                margin-top: 12px;
+                padding: 12px;
+            }
+            .cockpit-controls {
+                margin-bottom: 8px;
+            }
+            .cockpit-vitals {
+                gap: 8px;
+            }
+            .vital-card {
+                padding: 8px 10px;
+            }
+            .vital-label {
+                font-size: 0.68rem;
+            }
+            .vital-value {
+                font-size: 1.02rem;
+            }
+            .main-content {
+                padding: 14px 0;
+            }
+            .card {
+                padding: 16px;
+            }
+            .card-title {
+                margin-bottom: 14px;
+                font-size: 1rem;
+            }
+            .chart-controls .btn {
+                padding: 10px 14px;
+                font-size: 0.82rem;
+            }
+        }
+        @media (max-width: 1200px) {
+            .main-content {
+                flex-direction: column;
+            }
+            #live-pnl-card {
+                flex: 1 1 auto;
+            }
+            #strategy-card {
+                flex: 1 1 auto;
+            }
+            .panel-splitter {
+                display: none;
+            }
+            .metrics-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .cockpit-vitals {
+                grid-template-columns: repeat(3, minmax(130px, 1fr));
+            }
+        }
+        @media (max-width: 768px) {
+            body {
+                padding-bottom: 136px;
+            }
+            .dashboard-shell {
+                padding: 0 12px;
+            }
+            .top-cockpit {
+                margin-top: 12px;
+                padding: 12px;
+            }
+            .cockpit-controls {
+                gap: 8px;
+            }
+            .top-cockpit .cockpit-control {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .header-controls {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+            .cockpit-vitals {
+                grid-template-columns: repeat(2, minmax(120px, 1fr));
+            }
+            .main-header {
+                flex-direction: column;
+                gap: 16px;
+                padding: 16px;
+            }
+            .market-status {
+                flex-direction: column;
+                gap: 12px;
+                width: 100%;
+            }
+            .index-selector {
+                width: 100%;
+                justify-content: center;
+            }
+            .main-content {
+                padding: 12px 0;
+                gap: 12px;
+            }
+            .card {
+                padding: 20px;
+            }
+            .chart-controls {
+                justify-content: center;
+            }
+            .shift-panel {
+                text-align: left;
+            }
+            .shift-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .shift-count-input {
+                width: 84px;
+            }
+            .shift-action-btn {
+                min-width: calc(50% - 46px);
+                font-size: 0.76rem;
+            }
+            #net-pnl {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+            .metrics-row {
+                grid-template-columns: 1fr;
+            }
+            .strangle-status-bar {
+                height: auto;
+                min-height: 50px;
+                grid-template-columns: 1fr;
+                gap: 8px;
+                padding: 8px 12px;
+            }
+            .status-center {
+                justify-content: flex-start;
+                min-width: 0;
+            }
+            .status-right {
+                justify-content: flex-start;
+            }
+            .status-left-metrics {
+                flex-wrap: wrap;
+                white-space: normal;
+                gap: 8px;
+            }
+        }
+        @media (max-width: 1440px), (max-height: 900px) {
+            .main-header {
+                padding: 10px 24px;
+            }
+            .main-header h1 {
+                font-size: 1.1rem;
+            }
+            .dashboard-shell {
+                padding: 0 16px;
+            }
+            .top-cockpit {
+                margin-top: 8px;
+                padding: 10px 12px;
+            }
+            .vital-card {
+                padding: 6px 10px;
+            }
+            .vital-value {
+                font-size: 0.95rem;
+            }
+            .card {
+                padding: 14px;
+            }
+            .main-content {
+                padding: 10px 0;
+            }
+            .card-title {
+                margin: 0 0 10px 0;
+            }
+            .btn {
+                padding: 7px 12px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="main-header">
+        <h1><i class="fa-solid fa-chart-line" style="color: var(--accent-primary);"></i> Delta IV Dashboard</h1>
+        <div class="header-controls">
+            <div class="cockpit-control">
+                <label for="index-select">Index</label>
+                <select id="index-select">
+                    <option value="nifty">NIFTY</option>
+                    <option value="sensex">SENSEX</option>
+                    <option value="banknifty">BANKNIFTY</option>
+                </select>
+            </div>
+            <div class="cockpit-control">
+                <label for="cockpit-view">View</label>
+                <select id="cockpit-view">
+                    <option value="chart_table" selected>Chart + Table</option>
+                    <option value="chart">Chart Only</option>
+                    <option value="table">Table Only</option>
+                </select>
+            </div>
+        </div>
+<div class="market-status">
+        <span id="available-margin" class="symbol">Margin: ₹0</span>
+    <span id="symbol" class="symbol">Index</span>
+    <span id="spot-price" class="price">
+        <i class="fa-solid fa-indian-rupee-sign"></i> 
+        <span id="spot-value">0.00</span>
+        <span id="spot-change" style="margin-left: 6px;">(+0.00%)</span>
+    </span>
+</div>
+    </header>
+
+    <div class="dashboard-shell">
+    <section class="top-cockpit" aria-label="Trading cockpit">
+        <div class="cockpit-vitals" id="cockpit-vitals">
+            <div class="vital-card" id="vital-card-symbol">
+                <div class="vital-label">Symbol</div>
+                <div class="vital-value" id="vital-symbol">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-spot">
+                <div class="vital-label">Spot</div>
+                <div class="vital-value" id="vital-spot">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-synth">
+                <div class="vital-label">Synth Fut</div>
+                <div class="vital-value" id="vital-synth">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-atm">
+                <div class="vital-label">ATM Strike</div>
+                <div class="vital-value" id="vital-atm">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-price">
+                <div class="vital-label">Price</div>
+                <div class="vital-value" id="vital-price">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-low">
+                <div class="vital-label">Low</div>
+                <div class="vital-value" id="vital-low">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-high">
+                <div class="vital-label">High</div>
+                <div class="vital-value" id="vital-high">--</div>
+            </div>
+            <div class="vital-card" id="vital-card-updated">
+                <div class="vital-label">Last Updated</div>
+                <div class="vital-value small" id="vital-updated">--</div>
+            </div>
+        </div>
+    </section>
+
+    <main class="main-content">
+        <div id="live-pnl-card" class="card">
+            <div class="controls-zone">
+                <h3 class="card-title"><i class="fa-solid fa-wave-square"></i> Live P&L</h3>
+            </div>
+            <div class="chart-zone">
+                <div id="pnl-chart"></div>
+            </div>
+        </div>
+
+        <div id="main-splitter" class="panel-splitter" role="separator" aria-label="Resize Live PnL panel" aria-orientation="vertical"></div>
+
+        <div id="strategy-card" class="card">
+            <h3 class="card-title"><i class="fa-solid fa-star" style="color: var(--accent-secondary);"></i> Strategy & Vitals</h3>
+            <div id="recommendation">
+                <table class="recommendation-table">
+                   <thead><tr><th>Action</th><th>Strike</th><th>Type</th><th>Premium</th></tr></thead>
+                   <tbody id="recommendation-body">
+                   </tbody>
+                </table>
+            </div>
+            <div class="chart-controls">
+                <button id="manual-exit-btn" class="btn btn-danger"><i class="fa-solid fa-circle-stop"></i> Exit All Positions</button>
+                <button id="manual-sl-btn" class="btn btn-warning"><i class="fa-solid fa-shield-halved"></i> Place SL Orders</button>
+                <button id="cancel-sl-btn" class="btn btn-secondary"><i class="fa-solid fa-ban"></i> Cancel SL Orders</button>
+                <div class="shift-panel">
+                    <div class="shift-panel-title">Shift Legs</div>
+                    <div id="shift-legs-list" class="shift-legs-list">
+                        <div class="shift-empty">Loading open legs...</div>
+                    </div>
+                    <div class="shift-controls">
+                        <div class="shift-qty-toggle">
+                            <input id="shift-use-qty" type="checkbox" />
+                            <label for="shift-use-qty">Use Qty</label>
+                        </div>
+                        <input id="shift-qty-input" class="shift-qty-input" type="number" min="1" step="1" value="1" disabled />
+                        <label for="shift-count-input">Strikes</label>
+                        <input id="shift-count-input" class="shift-count-input" type="number" min="1" step="1" value="1" />
+                        <button id="shift-away-btn" class="shift-action-btn away" title="Move selected legs farther from spot (OTM)">
+                            Move Away / OTM
+                        </button>
+                        <button id="shift-near-btn" class="shift-action-btn near" title="Move selected legs closer to spot (ITM)">
+                            Move Near / ITM
+                        </button>
+                        <button id="shift-exit-selected-btn" class="shift-action-btn exit" title="Exit selected checked legs">
+                            Exit Selected Position
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    </div>
+
+    <div class="strangle-status-bar" role="status" aria-live="polite">
+        <div class="status-left-metrics">
+            <div class="status-inline-metric">
+                <span class="metric-label">Net Delta</span>
+                <span id="status-left-net-delta" class="metric-value">--</span>
+            </div>
+            <div class="status-inline-metric">
+                <span class="metric-label">Strangle Price</span>
+                <span id="status-left-strangle" class="metric-value">--</span>
+            </div>
+            <div class="status-inline-metric">
+                <span class="metric-label">Synth Fut Price</span>
+                <span id="status-left-synth" class="metric-value">--</span>
+            </div>
+            <div class="status-inline-metric">
+                <span class="metric-label">Skew</span>
+                <span id="status-left-skew" class="metric-value">--</span>
+            </div>
+        </div>
+
+        <div class="status-center status-tooltip" id="status-pnl-tooltip" data-tooltip="Net Profit/Loss: +₹12,450 (+3.2%)">
+            <span class="status-metric-title">Net P&amp;L</span>
+            <div class="status-pnl-wrap">
+                <i id="status-pnl-arrow" class="fa-solid fa-arrow-up status-arrow positive" aria-hidden="true"></i>
+                <span id="status-net-pnl-value" class="status-pnl-value positive">+₹12,450</span>
+                <svg id="status-sparkline" class="status-sparkline positive" viewBox="0 0 54 20" aria-hidden="true">
+                    <path id="status-sparkline-path" d="M1 15 L9 14 L17 10 L25 11 L33 7 L41 8 L53 3"></path>
+                </svg>
+            </div>
+        </div>
+
+        <div class="status-right">
+            <div class="status-mini-metric status-tooltip" id="status-strangle-tooltip" data-tooltip="Current Strangle Price: 125">
+                <i class="fa-solid fa-indian-rupee-sign" aria-hidden="true"></i>
+                <span>Strangle Price:</span>
+                <span id="status-strangle-price" class="value">₹245</span>
+            </div>
+            <div class="status-mini-metric status-tooltip" id="status-delta-tooltip" data-tooltip="Delta: 0.12 (Mild Bullish)">
+                <span aria-hidden="true">Δ</span>
+                <span>Delta:</span>
+                <span id="status-delta-value" class="value status-delta-value positive">0.12</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="static/script.js"></script>
+
+</body>
+</html>

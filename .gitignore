@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Project Specific
+Cred/
+.env*
+nohup.out
+logs/
+*.log
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
