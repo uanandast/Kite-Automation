@@ -8,4 +8,4 @@ services:
     environment:
       - CHROME_BIN=/usr/bin/chromium
       - CHROMEDRIVER_PATH=/usr/bin/chromedriver
-    restart: unless-stopped
+    restart: on-failure
