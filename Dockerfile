@@ -28,8 +28,8 @@ COPY . /app/
 # Install the application dependencies using uv
 RUN uv sync --frozen || uv sync
 
-# Expose port 8000 for FastAPI
-EXPOSE 8000
+# Expose port 5000 for FastAPI
+EXPOSE 5000
 
 # Command to run the application using uvicorn
-CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
