@@ -1,4 +1,5 @@
 import time
+import os
 from pathlib import Path
 import pyotp
 from selenium import webdriver
@@ -24,15 +25,18 @@ totp_secret = config['Kite']['totp_secret']
 
 def get_request_token():
     # Setup Chrome
+    chrome_bin = os.environ.get("CHROME_BIN", "/usr/bin/google-chrome")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+
     options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/google-chrome"
+    options.binary_location = chrome_bin
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--remote-debugging-port=9222")
 
-    service = Service("/usr/local/bin/chromedriver")
+    service = Service(chromedriver_path)
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
