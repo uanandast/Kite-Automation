@@ -8,6 +8,8 @@ Created on Sun Apr  6 13:13:02 2025
 import time
 import os
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from kiteconnect import KiteConnect
@@ -1156,10 +1158,10 @@ def Exiting_position(positions):
 
 def routine_close(positions):
     #exit the program after 10 PM
-    current_time = time.localtime()
-    if current_time.tm_hour >= 22:
-        print("Routine close: It's after 10 PM. Exiting all positions and shutting down.")
-        send_telegram("Routine close: It's after 10 PM. Exiting all positions and shutting down.")
+    ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if ist_time.hour >= 22:
+        print(f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down.")
+        send_telegram(f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down.")
         try:
             exit_all_positions_short_then_long(
                 positions,
