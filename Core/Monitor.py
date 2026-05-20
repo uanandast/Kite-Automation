@@ -23,8 +23,13 @@ from Core.shared_resources import (
     set_processing_state,
 )
 from Core.Delta_IV import live_data, ensure_tokens_subscribed
+client = None
 try:
-    client = Client(api_key=os.environ.get("OPEN_API_KEY"))
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPEN_API_KEY")
+    if api_key:
+        client = Client(api_key=api_key)
+    else:
+        client = Client()
 except Exception as e:
     print(f"❌ Error initializing Gemini client: {e}")
 
@@ -107,41 +112,47 @@ def send_telegram(message):
 
 
 def motivate_trader():
-    response = client.models.generate_content(
-    model="gemini-3.1-flash-lite-preview",
-    contents=[
-        {
-            "role": "user",
-            "parts": [
+    if client is None:
+        print("⚠️ Gemini client not initialized. Skipping motivational message.")
+        return
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite-preview",
+            contents=[
                 {
-                    "text": (
-                        "A stop-loss was triggered on a Nifty credit spread. "
-                        f"Risk was limited to {abs(margin_buffer * 100):.2f}% of total capital. "
-                        "This is the 2nd consecutive loss. "
-                        "The trader followed all predefined rules.\n\n"
-                        "Generate a short motivational message reinforcing discipline, "
-                        "risk management, and long-term statistical thinking."
-                    )
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "A stop-loss was triggered on a Nifty credit spread. "
+                                f"Risk was limited to {abs(margin_buffer * 100):.2f}% of total capital. "
+                                "This is the 2nd consecutive loss. "
+                                "The trader followed all predefined rules.\n\n"
+                                "Generate a short motivational message reinforcing discipline, "
+                                "risk management, and long-term statistical thinking."
+                            )
+                        }
+                    ],
                 }
             ],
-        }
-    ],
-    config={
-        "system_instruction": (
-            "You are a calm, professional trading performance coach. "
-            "The trader has just exited due to a stop-loss. "
-            "Reinforce discipline and emotional stability. "
-            "Do NOT mention recovering losses or making money back. "
-            "Do NOT encourage aggressive trading. "
-            "Keep the response under 2 sentences. "
-            "Tone: grounded, calm, professional."
+            config={
+                "system_instruction": (
+                    "You are a calm, professional trading performance coach. "
+                    "The trader has just exited due to a stop-loss. "
+                    "Reinforce discipline and emotional stability. "
+                    "Do NOT mention recovering losses or making money back. "
+                    "Do NOT encourage aggressive trading. "
+                    "Keep the response under 2 sentences. "
+                    "Tone: grounded, calm, professional."
+                )
+            },
         )
-    },
-)
-    #os.system(f'say "{response.text}"')
-    print(f"💬 Motivational message: {response.text}")
-    send_telegram(f"💬 Motivational message: {response.text}")
-
+        #os.system(f'say "{response.text}"')
+        print(f"💬 Motivational message: {response.text}")
+        send_telegram(f"💬 Motivational message: {response.text}")
+    except Exception as e:
+        print(f"⚠️ Error generating motivational message: {e}")
 
 
 def ask_and_sleep_mac():
