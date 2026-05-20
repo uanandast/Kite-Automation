@@ -63,7 +63,7 @@ def get_request_token():
         password_el.send_keys(password)
 
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(1)
+        time.sleep(5)
         driver.switch_to.default_content()
 
         # TOTP step (with retry to avoid stale element issues)
