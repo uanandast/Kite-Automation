@@ -1,5 +1,7 @@
 import time
 import os
+import shutil
+import tempfile
 from pathlib import Path
 import pyotp
 from selenium import webdriver
@@ -13,9 +15,15 @@ from kiteconnect import KiteConnect
 
 # === Your Kite credentials ===
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CRED_DIR = PROJECT_ROOT / "Cred"
+CONFIG_PATH = CRED_DIR / "Cred_kite_PREM.ini"
+ACCESS_TOKEN_PATH = CRED_DIR / "access_token.txt"
+
 config = configparser.ConfigParser()
-config_path = Path(__file__).parent.parent / "Cred" / "Cred_kite_PREM.ini"
-config.read(config_path)
+config.read(CONFIG_PATH)
+if "Kite" not in config:
+    raise RuntimeError(f"Kite credentials not found in {CONFIG_PATH}")
 
 api_key = config['Kite']['api_key']
 api_secret = config['Kite']['api_secret']
@@ -27,6 +35,7 @@ def get_request_token():
     # Setup Chrome
     chrome_bin = os.environ.get("CHROME_BIN", "/usr/bin/google-chrome")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+    chrome_profile_dir = tempfile.mkdtemp(prefix="kite-login-chrome-")
 
     options = webdriver.ChromeOptions()
     options.binary_location = chrome_bin
@@ -34,7 +43,8 @@ def get_request_token():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--remote-debugging-port=0")
+    options.add_argument(f"--user-data-dir={chrome_profile_dir}")
 
     service = Service(chromedriver_path)
     driver = webdriver.Chrome(service=service, options=options)
@@ -101,6 +111,7 @@ def get_request_token():
 
     finally:
         driver.quit()
+        shutil.rmtree(chrome_profile_dir, ignore_errors=True)
 
 # Run the flow
 if __name__ == "__main__":
@@ -111,8 +122,6 @@ if __name__ == "__main__":
     kite = KiteConnect(api_key=api_key)
     data = kite.generate_session(request_token, api_secret=api_secret)
     access_token = data["access_token"]
-    with open("Cred/access_token.txt", "w") as f:
-        f.write(access_token)
+    ACCESS_TOKEN_PATH.write_text(access_token)
 
-    print("Access token saved!")
-
+    print(f"Access token saved to {ACCESS_TOKEN_PATH}!")
