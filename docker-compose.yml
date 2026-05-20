@@ -4,7 +4,10 @@ services:
     network_mode: "host"
     volumes:
       - .:/app
+    env_file:
+      - .env.lightsail
     environment:
+      - ENV=lightsail
       - CHROME_BIN=/usr/bin/chromium
       - CHROMEDRIVER_PATH=/usr/bin/chromedriver
       - TZ=Asia/Kolkata

@@ -682,7 +682,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "google-genai", specifier = ">=0.3.0" },
+    { name = "google-genai" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "kiteconnect", specifier = ">=5.0.0" },
     { name = "matplotlib", specifier = ">=3.8" },

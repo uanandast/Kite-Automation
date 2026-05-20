@@ -10,6 +10,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 import requests
 from datetime import datetime
+import tempfile
+import shutil
 
 
 DEFAULT_WAIT_SECONDS = 15
@@ -51,9 +53,14 @@ def send_telegram(message):
 
 
 def get_request_token():
-     # Setup Chrome for Lightsail
+    # Setup Chrome for Lightsail / Docker
+    import os
     options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/google-chrome"
+    chrome_bin = os.environ.get("CHROME_BIN", "/usr/bin/google-chrome")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+    chrome_profile_dir = tempfile.mkdtemp(prefix="kite-close-chrome-")
+
+    options.binary_location = chrome_bin
     options.page_load_strategy = "eager"
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -64,9 +71,10 @@ def get_request_token():
     options.add_argument("--disable-sync")
     options.add_argument("--blink-settings=imagesEnabled=false")
     options.add_argument("--window-size=1365,768")
-    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--remote-debugging-port=0")
+    options.add_argument(f"--user-data-dir={chrome_profile_dir}")
 
-    service = Service("/usr/local/bin/chromedriver")
+    service = Service(chromedriver_path)
     driver = webdriver.Chrome(service=service, options=options)
     wait = WebDriverWait(driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS)
     
@@ -273,6 +281,7 @@ def get_request_token():
             print("❌ Account Closure Failed")
             send_telegram("❌ Account Closure Failed")
         driver.quit()
+        shutil.rmtree(chrome_profile_dir, ignore_errors=True)
 
 # Run the flow
 if __name__ == "__main__":

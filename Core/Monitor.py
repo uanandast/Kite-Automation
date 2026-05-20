@@ -29,7 +29,7 @@ try:
     if api_key:
         client = Client(api_key=api_key)
     else:
-        client = Client()
+        print("⚠️ No Gemini API key or OPEN_API_KEY found. Skipping Gemini client initialization.")
 except Exception as e:
     print(f"❌ Error initializing Gemini client: {e}")
 
