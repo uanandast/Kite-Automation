@@ -111,14 +111,61 @@ def get_request_token():
                 time.sleep(0.3)
         raise last_error
 
+    def get_segment_toggle_state(segment_id):
+        toggles = driver.find_elements(By.ID, segment_id)
+        if not toggles:
+            print(f"ℹ️ {segment_id} toggle not found; skipping.")
+            return None
+
+        return driver.execute_script(
+            """
+            const toggle = arguments[0];
+            const label = document.querySelector(`label[for="${toggle.id}"]`);
+
+            if (!label) return null;
+            if (typeof toggle.checked === 'boolean') return toggle.checked;
+
+            const state =
+                toggle.getAttribute('aria-checked') ??
+                toggle.getAttribute('data-checked') ??
+                label.getAttribute('aria-checked') ??
+                label.getAttribute('data-checked');
+
+            if (state !== null && state !== undefined) {
+                return ['true', 'checked', 'on', '1'].includes(String(state).toLowerCase());
+            }
+
+            return (
+                label.classList.contains('active') ||
+                label.classList.contains('checked') ||
+                label.classList.contains('selected')
+            );
+            """,
+            toggles[0],
+        )
+
     def click_segment(segment_id):
+        current_state = get_segment_toggle_state(segment_id)
+
+        if current_state is None:
+            return
+
+        if not current_state:
+            print(f"ℹ️ {segment_id} toggle is already OFF; skipping.")
+            return
+
         locator = (By.XPATH, f"//label[@for='{segment_id}']")
+        if not driver.find_elements(*locator):
+            print(f"ℹ️ {segment_id} toggle label not found; skipping.")
+            return
+
         segment_element = wait.until(EC.element_to_be_clickable(locator))
         driver.execute_script(
             "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();",
             segment_element,
         )
-        print(f"✅ {segment_id} clicked successfully.")
+        wait.until(lambda _: get_segment_toggle_state(segment_id) in (False, None))
+        print(f"✅ {segment_id} toggle was ON and is now OFF.")
 
     try:
         login_url = "https://console.zerodha.com/"
@@ -193,7 +240,6 @@ def get_request_token():
             print("❌ Error clicking NSE_EQ:")
             print(f"Exception: {e}")
             save_debug_screenshot("nse_eq_error")
-            return None
 
         # click on bse equity
         try:
@@ -202,7 +248,6 @@ def get_request_token():
             print("❌ Error clicking BSE_EQ:")
             print(f"Exception: {e}")
             save_debug_screenshot("bse_eq_error")
-            return None
 
         # click on nse fno
         try:
@@ -211,7 +256,6 @@ def get_request_token():
             print("❌ Error clicking NSE_FO:")
             print(f"Exception: {e}")
             save_debug_screenshot("nse_fo_error")
-            return None
 
         # click on bse fno
         try:
@@ -220,7 +264,6 @@ def get_request_token():
             print("❌ Error clicking BSE_FO:")
             print(f"Exception: {e}")
             save_debug_screenshot("bse_fo_error")
-            return None
                 
         #Click on Commodity
         try:
@@ -229,13 +272,12 @@ def get_request_token():
             print("❌ Error clicking NSE_COM:")
             print(f"Exception: {e}")
             save_debug_screenshot("nse_com_error")
-            return None
 
         # Clicking on continue
         try:
             continue_btn = click_with_retry((
-                By.XPATH, "//button[@class='btn btn-blue' and contains(text(), 'Continue')]"
-            ),  "Continue")
+                By.XPATH, "//button[@class='btn btn-blue' and contains(text(), 'Continue ')]"
+            ),  "Continue ")
 
             # Ensure transition to confirm stage before trying to click confirm.
             try:
