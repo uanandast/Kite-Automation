@@ -54,10 +54,9 @@ docker-compose up --build
    ```
 2. **Setup Credentials**:
    - Manually copy your `Cred/` folder and `.env.lightsail` to the server (these are ignored by git).
-3. **Deploy**:
+3. **Deploy / Start from the Project Directory**:
    ```bash
-   chmod +x start.sh
-   ./start.sh
+   docker-compose up -d
    ```
 
 ## 📂 Project Structure
