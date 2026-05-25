@@ -254,6 +254,17 @@ function syncTopBarFromStraddle(priceNum) {
     if (highInlineEl) highInlineEl.textContent = `₹${formatIndianNumber(observedStraddleHigh).replace(/\.00$/, '')}`;
 }
 
+function syncLiveStraddlePrice(value) {
+    const priceNum = Number(value);
+    if (!Number.isFinite(priceNum)) return null;
+
+    straddlePriceFromSocket = priceNum;
+    lastKnownStraddlePrice = priceNum;
+    syncTopBarFromStraddle(priceNum);
+    updateTopTimestamp();
+    return priceNum;
+}
+
 function resetIndexScopedStraddleStats() {
     observedStraddleLow = null;
     observedStraddleHigh = null;
@@ -477,7 +488,17 @@ async function fetchOptionData() {
 
         console.log(`Fetched option data at ${new Date().toISOString()}:`, json);
 
-        straddlePriceFromSocket = json.strangle_credit ?? null;
+        if (json.selected_index) {
+            const incomingIndex = String(json.selected_index).toLowerCase();
+            if (incomingIndex !== currentSelectedIndex) {
+                currentSelectedIndex = incomingIndex;
+                resetIndexScopedStraddleStats();
+            } else {
+                currentSelectedIndex = incomingIndex;
+            }
+        }
+
+        const liveStraddlePrice = syncLiveStraddlePrice(json.strangle_credit);
         future_price = json.future_price ?? null;
         skew = json.skew ?? null;
         // app.py mapping:
@@ -495,15 +516,6 @@ async function fetchOptionData() {
 
         const spotPrice = Number(json.spot_price);
         const previousClose = Number(json.previous_close);
-        if (json.selected_index) {
-            const incomingIndex = String(json.selected_index).toLowerCase();
-            if (incomingIndex !== currentSelectedIndex) {
-                currentSelectedIndex = incomingIndex;
-                resetIndexScopedStraddleStats();
-            } else {
-                currentSelectedIndex = incomingIndex;
-            }
-        }
         updateSpotDisplay(json.spot_price, json.previous_close);
         const symbolEl = document.getElementById('symbol');
         if (symbolEl) symbolEl.textContent = json.symbol || "Index";
@@ -520,6 +532,9 @@ async function fetchOptionData() {
         }
 
         const atmStrike = toFiniteNumber(json.atm_strike);
+        if (liveStraddlePrice !== null) {
+            json.strangle_credit = liveStraddlePrice;
+        }
         updateTopCockpit(json, atmStrike);
         updateSpotDisplay(spotPrice, previousClose);
         // Keep top-bar price stable from position PnL feed to avoid flicker.
@@ -605,13 +620,10 @@ async function fetchPnl() {
             currentPosCredit = cspValue;
         }
         const positionDelta = Number(json.Delta ?? json.delta ?? json.Current_pos_delta ?? json.current_pos_delta ?? json.position_delta);
-        const socketStraddle = Number(straddlePriceFromSocket);
+        const liveStraddle = syncLiveStraddlePrice(straddlePriceFromSocket);
 
         // Chart should reflect live strangle/straddle ticks.
-        let chartStraddlePrice = Number.isFinite(chartApiStraddle) ? chartApiStraddle : null;
-        if (!Number.isFinite(chartStraddlePrice)) {
-            chartStraddlePrice = Number.isFinite(socketStraddle) ? socketStraddle : null;
-        }
+        let chartStraddlePrice = liveStraddle ?? (Number.isFinite(chartApiStraddle) ? chartApiStraddle : null);
         if (Number.isFinite(chartStraddlePrice)) {
             lastKnownStraddlePrice = chartStraddlePrice;
         } else if (Number.isFinite(lastKnownStraddlePrice)) {
@@ -628,7 +640,7 @@ async function fetchPnl() {
             return;
         }
 
-        syncTopBarFromStraddle(displayStraddlePrice);
+        syncLiveStraddlePrice(displayStraddlePrice);
         updateTopTimestamp();
 
         // Group points by minute for 1-minute historical data gap
