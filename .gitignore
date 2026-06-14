@@ -22,3 +22,9 @@ logs/
 
 # Local Docker overrides
 docker-compose.override.yml
+
+# Generated output
+graphify-out/
+
+# logs
+*.log
