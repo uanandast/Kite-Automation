@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Install necessary system dependencies for Chrome/Selenium and general utilities
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     unzip \
