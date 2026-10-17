@@ -1,9 +1,9 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
-import os
 
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"

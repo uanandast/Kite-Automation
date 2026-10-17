@@ -1,5 +1,5 @@
-from threading import Lock
 from copy import deepcopy
+from threading import Lock
 
 # Shared lock for monitoring
 monitor_lock = Lock()

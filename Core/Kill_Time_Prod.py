@@ -1,55 +1,22 @@
+import shutil
+import tempfile
 import time
-from pathlib import Path
+from datetime import datetime
+
 import pyotp
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-import configparser
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-import requests
-from datetime import datetime
-import tempfile
-import shutil
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from send_notification import send_telegram
 
+from Cred._base import kite_credentials
 
 DEFAULT_WAIT_SECONDS = 15
 TRANSITION_WAIT_SECONDS = 6
 FAST_POLL_SECONDS = 0.2
-TELEGRAM_TIMEOUT_SECONDS = 2
-
-
-# === Your Kite credentials ===
-
-config = configparser.ConfigParser()
-
-config_path = Path(__file__).parent.parent / "Cred" / "Cred_kite_PREM.ini"
-config.read(config_path)
-
-api_key = config['Kite']['api_key']
-api_secret = config['Kite']['api_secret']
-user_id = config['Kite']['user_id']
-password = config['Kite']['password']
-totp_secret = config['Kite']['totp_secret']  
-
-
-# Telegram alert function
-def send_telegram(message):
-    BOT_TOKEN = config.get('Kite', 'BOT_TOKEN')
-    CHAT_ID = config.get('Kite', 'CHAT_ID')
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    params = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
-
-    try:
-        requests.get(url, params=params, timeout=TELEGRAM_TIMEOUT_SECONDS)
-        print("📩 Telegram alert sent")
-    except Exception as e:
-        print(f"❌ Telegram error: {e}")
 
 
 def get_request_token():
@@ -81,12 +48,12 @@ def get_request_token():
     success = False
 
     def save_debug_screenshot(stage):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005    
         path = f"debug_{stage}_{timestamp}.png"
         try:
             driver.save_screenshot(path)
             print(f"📸 Saved debug screenshot: {path}")
-        except Exception as screenshot_error:
+        except Exception as screenshot_error:  # noqa: BLE001
             print(f"⚠️ Could not save screenshot: {screenshot_error}")
 
     def click_with_retry(locator, step_name, attempts=3, timeout=DEFAULT_WAIT_SECONDS):
@@ -181,10 +148,10 @@ def get_request_token():
 
         # Login step
         username = wait.until(EC.presence_of_element_located((By.ID, "userid")))
-        username.send_keys(user_id)
+        username.send_keys(kite_credentials.user_id)
 
         password_el = driver.find_element(By.ID, "password")
-        password_el.send_keys(password)
+        password_el.send_keys(kite_credentials.password)
 
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
         WebDriverWait(
@@ -198,7 +165,7 @@ def get_request_token():
         # TOTP step (with retry to avoid stale element issues)
         for attempt in range(3):
             try:
-                totp = pyotp.TOTP(totp_secret).now()
+                totp = pyotp.TOTP(kite_credentials.totp_secret).now()
                 print(f"✅ TOTP: {totp}")
 
                 totp_input = wait.until(
@@ -289,7 +256,7 @@ def get_request_token():
             print("❌ Failed to click Continue button:")
             print(f"Exception: {e}")
             save_debug_screenshot("continue_error")
-            return None
+            return
 
         # Clicking on confirm-page continue button
         try:
@@ -307,13 +274,13 @@ def get_request_token():
             print("❌ Failed to click Confirm button:")
             print(f"Exception: {e}")
             save_debug_screenshot("confirm_error")
-            return None
+            return
         
 
     except Exception as e:
         print(f"❌ Error during login: {e}")
         save_debug_screenshot("login_error")
-        return None
+        return
 
     finally:
         if success:

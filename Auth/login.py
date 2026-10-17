@@ -1,13 +1,14 @@
+import configparser
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
 import pyotp
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from urllib.parse import urlparse, parse_qs
-import configparser
 from kiteconnect import KiteConnect
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
 
 # === Your Kite credentials ===
 

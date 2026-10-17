@@ -19,4 +19,19 @@ dependencies = [
     "jinja2>=3.1.6",
     "requests>=2.34.2",
     "google-genai",
+    "ruff>=0.16.10",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.16.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-q"

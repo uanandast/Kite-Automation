@@ -1,51 +1,37 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Apr  6 13:13:02 2025
-
-@author: utkarshanand
-"""
-import time
+# flake8: noqa: N999
 import os
 import re
-from datetime import datetime
-from zoneinfo import ZoneInfo
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from threading import Lock
-from kiteconnect import KiteConnect
-import configparser
-from Core.system_close import system_close
+from zoneinfo import ZoneInfo
+
 import requests
-from google.genai import Client
+from kiteconnect import KiteConnect
+from kiteconnect.exceptions import KiteException
+
+from Core.Delta_IV import ensure_tokens_subscribed, live_data
+from Core.Gemini_AI import motivate_trader
+from Core.monitor_config import (
+    ACCOUNT_LOCK_POSITION_CHECK_SECONDS,
+    ACCOUNT_LOCK_POSITION_POLL_SECONDS,
+    ALLOWED_OPTION_EXCHANGES,
+    INDEX_FREEZE_QTY,
+    INDEX_STRIKE_STEP,
+    MARGIN_BUFFER,
+)
+from Core.send_notification import send_telegram
 
 # === Threading lock for monitor_spreads ===
 from Core.shared_resources import (
     set_processing_state,
 )
-from Core.Delta_IV import live_data, ensure_tokens_subscribed
-client = None
-try:
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPEN_API_KEY")
-    if api_key:
-        client = Client(api_key=api_key)
-    else:
-        print("⚠️ No Gemini API key or OPEN_API_KEY found. Skipping Gemini client initialization.")
-except Exception as e:
-    print(f"❌ Error initializing Gemini client: {e}")
+from Core.system_close import system_close
+from Cred._base import kite_credentials
 
-
-# === Your credentials ===
-config = configparser.ConfigParser()
-config.read('Cred/Cred_kite_PREM.ini')
-api_key = config['Kite']['api_key']
-
-
-with open("Cred/access_token.txt", "r") as f:
-    access_token = f.read().strip()
-
-
-kite = KiteConnect(api_key=api_key)
-kite.set_access_token(access_token)
+kite = KiteConnect(api_key=kite_credentials.api_key)
+kite.set_access_token(kite_credentials.access_token)
 
 
 pnl_total = 0
@@ -55,111 +41,50 @@ available_margin = 0
 # Track exiting state
 is_exiting = False
 exit_all_lock = Lock()
-ACCOUNT_LOCK_POSITION_CHECK_SECONDS = 120
-ACCOUNT_LOCK_POSITION_POLL_SECONDS = 2
+OPERATIONAL_EXCEPTIONS = (
+    KiteException,
+    requests.exceptions.RequestException,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 
 # Track SL order IDs and matched hedge legs
 placed_sl_orders = {}
 
-INDEX_STRIKE_STEP = {
-    "BANKNIFTY": 100,
-    "NIFTY": 50,
-    "SENSEX": 100,
-}
-
-INDEX_FREEZE_QTY = {
-    "NIFTY": 1755,
-    "BANKNIFTY": 900,
-    "SENSEX": 1000,
-}
 
 def get_margin():
-    margin = kite.margins('equity').get('available')['collateral'] + kite.margins('equity').get('available')['opening_balance']  
+    margin = (
+        kite.margins("equity").get("available")["collateral"]
+        + kite.margins("equity").get("available")["opening_balance"]
+    )
 
     print(f"💰 Available margin: ₹{margin:.2f}")
-
 
     return margin
 
 
 margin = get_margin()
-margin_buffer =  0.003  # 0.3% of margin as buffer
-threshold = -margin * margin_buffer  # 0.3% of margin as threshold for exiting positions
-print(f"🚨 Threshold for exiting positions: ₹{threshold:.2f} ({round(margin_buffer * 100, 2)}% of margin)"   )
+margin_buffer = MARGIN_BUFFER
+threshold = -margin * margin_buffer
+print(
+    f"🚨 Threshold for exiting positions: ₹{threshold:.2f} ({round(margin_buffer * 100, 2)}% of margin)"
+)
+
 
 def beep():
     os.system('say "order updated"')
-
-
-# Telegram alert function
-def send_telegram(message):
-    BOT_TOKEN = config.get('Kite', 'BOT_TOKEN')
-    CHAT_ID = config.get('Kite', 'CHAT_ID')
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    params = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
-
-    try:
-        requests.get(url, params=params, timeout=5)
-        print("📩 Telegram alert sent")
-    except Exception as e:
-        print(f"❌ Telegram error: {e}")
-
-
-
-def motivate_trader():
-    if client is None:
-        print("⚠️ Gemini client not initialized. Skipping motivational message.")
-        return
-
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=[
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "text": (
-                                "A stop-loss was triggered on a Nifty credit spread. "
-                                f"Risk was limited to {abs(margin_buffer * 100):.2f}% of total capital. "
-                                "This is the 2nd consecutive loss. "
-                                "The trader followed all predefined rules.\n\n"
-                                "Generate a short motivational message reinforcing discipline, "
-                                "risk management, and long-term statistical thinking."
-                            )
-                        }
-                    ],
-                }
-            ],
-            config={
-                "system_instruction": (
-                    "You are a calm, professional trading performance coach. "
-                    "The trader has just exited due to a stop-loss. "
-                    "Reinforce discipline and emotional stability. "
-                    "Do NOT mention recovering losses or making money back. "
-                    "Do NOT encourage aggressive trading. "
-                    "Keep the response under 2 sentences. "
-                    "Tone: grounded, calm, professional."
-                )
-            },
-        )
-        #os.system(f'say "{response.text}"')
-        print(f"💬 Motivational message: {response.text}")
-        send_telegram(f"💬 Motivational message: {response.text}")
-    except Exception as e:
-        print(f"⚠️ Error generating motivational message: {e}")
 
 
 def ask_and_sleep_mac():
     try:
         print("Locking Account...")
         system_close()
-        send_telegram("🚨 Max loss threshold breached. Account locked and Mac will sleep. Review the situation calmly before resuming trading.")
+        send_telegram(
+            "🚨 Max loss threshold breached. Account locked and Mac will sleep. Review the situation calmly before resuming trading."
+        )
         motivate_trader()
 
         # print("💤 Sleeping Mac...")
@@ -168,7 +93,7 @@ def ask_and_sleep_mac():
         # exit(0)
         # else:
         #     print("🛑 Sleep cancelled by user.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"⚠️ Could not display popup or sleep: {e}")
     finally:
         _check_open_positions_during_account_lock()
@@ -193,25 +118,30 @@ def _check_open_positions_during_account_lock(
                     f"{p.get('exchange')}:{p.get('tradingsymbol')} x{p.get('quantity')}"
                     for p in open_positions
                 )
-                print(f"🚨 Account lock check: closing {last_count} open option position(s): {symbols}")
+                print(
+                    f"🚨 Account lock check: closing {last_count} open option position(s): {symbols}"
+                )
                 exit_all_positions_short_then_long(
                     open_positions,
-                    allowed_exchanges=('BFO', 'NFO', 'MCX'),
+                    allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
                     reason="account-lock-watch",
                 )
-        except Exception as e:
+        except OPERATIONAL_EXCEPTIONS as e:
             print(f"⚠️ Account lock check could not fetch positions: {e}")
 
         time.sleep(max(0.2, float(poll_interval_sec)))
 
-    print(f"✅ Account lock check finished after ~{int(timeout_sec)}s (last open count: {last_count})")
+    print(
+        f"✅ Account lock check finished after ~{int(timeout_sec)}s (last open count: {last_count})"
+    )
 
 
 def cancel_all_sl_orders(fast=False):
     try:
         orders = kite.orders()
         sl_orders = [
-            o for o in orders
+            o
+            for o in orders
             if o["status"] in ["OPEN", "TRIGGER PENDING"] and o["order_type"] == "SL"
         ]
         cancelled = 0
@@ -223,13 +153,18 @@ def cancel_all_sl_orders(fast=False):
                 kite.cancel_order(order_id=o["order_id"], variety="regular")
                 cancelled += 1
                 if not fast:
-                    print(f"❌ Cancelled SL order {o['order_id']} for {o['tradingsymbol']}")
-            except Exception as e:
+                    print(
+                        f"❌ Cancelled SL order {o['order_id']} for {o['tradingsymbol']}"
+                    )
+            except Exception as e:  # noqa: BLE001
                 errors += 1
-                print(f"⚠️ Error cancelling SL order {o['order_id']} for {o['tradingsymbol']}: {e}")
+                print(
+                    f"⚠️ Error cancelling SL order {o['order_id']} for {o['tradingsymbol']}: {e}"
+                )
 
         if fast and len(sl_orders) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
+
             max_workers = min(4, len(sl_orders))
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 futures = [ex.submit(_cancel, o) for o in sl_orders]
@@ -243,7 +178,7 @@ def cancel_all_sl_orders(fast=False):
             "cancelled": cancelled,
             "errors": errors,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"⚠️ Error fetching orders for cancellation: {e}")
         return {
             "requested": 0,
@@ -251,8 +186,6 @@ def cancel_all_sl_orders(fast=False):
             "errors": 1,
             "error": str(e),
         }
-
-
 
 
 def _position_index_key(position):
@@ -276,8 +209,6 @@ def _parse_strike_from_symbol(symbol):
         return float(match.group(1))
     except ValueError:
         return None
-
-
 
 
 def _compute_target_strike(current_strike, opt_type, shift_steps, strike_step):
@@ -323,7 +254,10 @@ def _get_freeze_qty(position=None, symbol=None):
 
 
 def _place_market_exit(order_template, quantity, *, fast=False):
-    freeze_limit = int(order_template.get("freeze_limit") or _get_freeze_qty(symbol=order_template.get("tradingsymbol")))
+    freeze_limit = int(
+        order_template.get("freeze_limit")
+        or _get_freeze_qty(symbol=order_template.get("tradingsymbol"))
+    )
     order_ids = []
     chunks = []
 
@@ -339,7 +273,7 @@ def _place_market_exit(order_template, quantity, *, fast=False):
             order_type="MARKET",
             product=order_template["product"],
             variety="regular",
-            market_protection=-1
+            market_protection=-1,
         )
 
     if fast and len(chunks) > 1:
@@ -366,20 +300,28 @@ def exit_position(pos, side=None, quantity=None, fast=False):
             try:
                 requested_qty = int(quantity)
             except (TypeError, ValueError):
-                print(f"❌ Invalid exit quantity for {pos.get('tradingsymbol')}: {quantity}")
+                print(
+                    f"❌ Invalid exit quantity for {pos.get('tradingsymbol')}: {quantity}"
+                )
                 return []
             if requested_qty <= 0:
-                print(f"❌ Exit quantity must be positive for {pos.get('tradingsymbol')}: {requested_qty}")
+                print(
+                    f"❌ Exit quantity must be positive for {pos.get('tradingsymbol')}: {requested_qty}"
+                )
                 return []
             if requested_qty > total_qty:
-                print(f"❌ Exit quantity {requested_qty} exceeds open {total_qty} for {pos.get('tradingsymbol')}")
+                print(
+                    f"❌ Exit quantity {requested_qty} exceeds open {total_qty} for {pos.get('tradingsymbol')}"
+                )
                 return []
 
         # Side is derived from current position direction to avoid accidental reversal.
         side = "BUY" if int(pos.get("quantity", 0)) < 0 else "SELL"
         freeze_limit = _get_freeze_qty(position=pos)
         if fast and requested_qty > freeze_limit:
-            print(f"⚡ Fast exit for {pos['tradingsymbol']} with {side}, Qty={requested_qty}")
+            print(
+                f"⚡ Fast exit for {pos['tradingsymbol']} with {side}, Qty={requested_qty}"
+            )
         else:
             print(f"🔁 Exiting {pos['tradingsymbol']} with {side}, Qty={requested_qty}")
 
@@ -397,17 +339,22 @@ def exit_position(pos, side=None, quantity=None, fast=False):
         )
         elapsed = time.time() - start_ts
         if fast:
-            print(f"✅ Fast exit order(s) placed for {pos['tradingsymbol']} ({elapsed:.2f}s)")
+            print(
+                f"✅ Fast exit order(s) placed for {pos['tradingsymbol']} ({elapsed:.2f}s)"
+            )
         else:
             print(f"✅ Exit order placed for {pos['tradingsymbol']} ({elapsed:.2f}s)")
         return order_ids
-    except Exception as e:
-        print(f"❌ Error while exiting hedge {pos['tradingsymbol']}: {e}")
+    except OPERATIONAL_EXCEPTIONS as e:
+        print(f"❌ Error while exiting hedge {pos.get('tradingsymbol')}: {e}")
         return []
 
 
 def _place_market_entry(order_template, quantity):
-    freeze_limit = int(order_template.get("freeze_limit") or _get_freeze_qty(symbol=order_template.get("tradingsymbol")))
+    freeze_limit = int(
+        order_template.get("freeze_limit")
+        or _get_freeze_qty(symbol=order_template.get("tradingsymbol"))
+    )
     order_ids = []
     for i in range(0, quantity, freeze_limit):
         chunk_qty = min(freeze_limit, quantity - i)
@@ -419,7 +366,7 @@ def _place_market_entry(order_template, quantity):
             order_type="MARKET",
             product=order_template["product"],
             variety="regular",
-            market_protection=-1
+            market_protection=-1,
         )
         order_ids.append(order_id)
     return order_ids
@@ -428,7 +375,8 @@ def _place_market_entry(order_template, quantity):
 def _open_option_positions_snapshot():
     positions = kite.positions()["net"]
     return [
-        p for p in positions
+        p
+        for p in positions
         if p.get("quantity", 0) != 0
         and str(p.get("tradingsymbol", "")).upper().endswith(("CE", "PE"))
         and p.get("exchange") in ("NFO", "BFO", "MCX")
@@ -440,10 +388,12 @@ def _resolve_open_position(open_positions, symbol, exchange=""):
     if exchange_norm:
         matched = next(
             (
-                p for p in open_positions
-                if p.get("tradingsymbol") == symbol and p.get("exchange") == exchange_norm
+                p
+                for p in open_positions
+                if p.get("tradingsymbol") == symbol
+                and p.get("exchange") == exchange_norm
             ),
-            None
+            None,
         )
         if matched:
             return matched
@@ -451,7 +401,9 @@ def _resolve_open_position(open_positions, symbol, exchange=""):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _wait_for_position_reduction(symbol, exchange, target_abs_qty=0, timeout_sec=1.8, poll_interval_sec=0.1):
+def _wait_for_position_reduction(
+    symbol, exchange, target_abs_qty=0, timeout_sec=1.8, poll_interval_sec=0.1
+):
     """
     Wait until open quantity for a symbol/exchange is reduced to target_abs_qty or below.
     Keeps shift fast by using short polling and short timeout.
@@ -463,20 +415,22 @@ def _wait_for_position_reduction(symbol, exchange, target_abs_qty=0, timeout_sec
     while time.time() <= deadline:
         try:
             open_positions = _open_option_positions_snapshot()
-            matched = _resolve_open_position(open_positions, symbol, exchange=exchange_norm)
+            matched = _resolve_open_position(
+                open_positions, symbol, exchange=exchange_norm
+            )
             current_abs_qty = abs(int(matched.get("quantity", 0))) if matched else 0
             if current_abs_qty <= target_abs_qty:
                 return True, current_abs_qty
-        except Exception:
+        except OPERATIONAL_EXCEPTIONS as e:
             # Keep polling briefly; transient position fetch issues can occur.
-            pass
+            print(f"⚠️ Position reduction check still waiting for {symbol}: {e}")
         time.sleep(max(0.05, float(poll_interval_sec)))
 
     try:
         open_positions = _open_option_positions_snapshot()
         matched = _resolve_open_position(open_positions, symbol, exchange=exchange_norm)
         current_abs_qty = abs(int(matched.get("quantity", 0))) if matched else 0
-    except Exception:
+    except OPERATIONAL_EXCEPTIONS:
         current_abs_qty = None
     return False, current_abs_qty
 
@@ -487,21 +441,23 @@ def get_open_option_positions():
     result = []
     for p in option_positions:
         quantity = int(p.get("quantity", 0))
-        result.append({
-            "tradingsymbol": p.get("tradingsymbol"),
-            "exchange": p.get("exchange"),
-            "product": p.get("product"),
-            "quantity": quantity,
-            "side": "SHORT" if quantity < 0 else "LONG",
-            "avg_price": p.get("average_price"),
-        })
+        result.append(
+            {
+                "tradingsymbol": p.get("tradingsymbol"),
+                "exchange": p.get("exchange"),
+                "product": p.get("product"),
+                "quantity": quantity,
+                "side": "SHORT" if quantity < 0 else "LONG",
+                "avg_price": p.get("average_price"),
+            }
+        )
     result.sort(key=lambda item: (item["exchange"], item["tradingsymbol"]))
     return result
 
 
 def shift_selected_legs(selected_legs, shift_steps):
     if not isinstance(shift_steps, int):
-        raise ValueError("Shift must be an integer")
+        raise TypeError("Shift must be an integer")
     if shift_steps == 0:
         raise ValueError("Shift cannot be 0")
 
@@ -529,9 +485,7 @@ def shift_selected_legs(selected_legs, shift_steps):
                 "total",
             ]
             return ", ".join(
-                f"{key}={timings[key]:.2f}s"
-                for key in ordered_keys
-                if key in timings
+                f"{key}={timings[key]:.2f}s" for key in ordered_keys if key in timings
             )
 
         symbol = str(leg.get("tradingsymbol", "")).strip()
@@ -577,33 +531,41 @@ def shift_selected_legs(selected_legs, shift_steps):
             # --- OPTIMIZED SHIFT LOGIC (NO CACHE/API LOOKUP) ---
             parsed_strike = _parse_strike_from_symbol(pos_symbol)
             if parsed_strike is None:
-                raise RuntimeError(f"Unable to resolve current strike from {pos_symbol}")
+                raise RuntimeError(
+                    f"Unable to resolve current strike from {pos_symbol}"
+                )
             current_strike = parsed_strike
 
             index_name = _infer_index_from_symbol(pos_symbol)
             if not index_name:
                 raise RuntimeError(f"Could not infer index from symbol {pos_symbol}")
-            
+
             strike_step = INDEX_STRIKE_STEP.get(index_name)
             if not strike_step:
-                raise RuntimeError(f"Could not determine strike step for index {index_name}")
+                raise RuntimeError(
+                    f"Could not determine strike step for index {index_name}"
+                )
 
             strike_calc_start = time.perf_counter()
-            target_strike = _compute_target_strike(current_strike, opt_type, shift_steps, strike_step)
+            target_strike = _compute_target_strike(
+                current_strike, opt_type, shift_steps, strike_step
+            )
             _mark("compute_target_strike", strike_calc_start)
 
             target_lookup_start = time.perf_counter()
-            
+
             # Reconstruct the new trading symbol via string substitution
             # example: NIFTY24APR22500CE -> NIFTY24APR22550CE
             new_target_symbol = re.sub(
-                rf"{int(current_strike)}{opt_type}$", 
-                f"{int(target_strike)}{opt_type}", 
-                pos_symbol, 
-                flags=re.IGNORECASE
+                rf"{int(current_strike)}{opt_type}$",
+                f"{int(target_strike)}{opt_type}",
+                pos_symbol,
+                flags=re.IGNORECASE,
             )
             if new_target_symbol == pos_symbol:
-                raise RuntimeError(f"Failed to cleanly generate target symbol from {pos_symbol}")
+                raise RuntimeError(
+                    f"Failed to cleanly generate target symbol from {pos_symbol}"
+                )
 
             _mark("lookup_target_instrument", target_lookup_start)
             _mark("find_next_strike", strike_start)
@@ -641,12 +603,15 @@ def shift_selected_legs(selected_legs, shift_steps):
 
             entry_side = "SELL" if is_short else "BUY"
             entry_start = time.perf_counter()
-            entry_order_ids = _place_market_entry({
-                "exchange": pos_exchange,
-                "tradingsymbol": new_target_symbol,
-                "transaction_type": entry_side,
-                "product": pos.get("product"),
-            }, entry_qty)
+            entry_order_ids = _place_market_entry(
+                {
+                    "exchange": pos_exchange,
+                    "tradingsymbol": new_target_symbol,
+                    "transaction_type": entry_side,
+                    "product": pos.get("product"),
+                },
+                entry_qty,
+            )
             _mark("take_new_position", entry_start)
 
             sl_place_result = {"placed": 0, "error": None}
@@ -667,7 +632,7 @@ def shift_selected_legs(selected_legs, shift_steps):
                 "entry_order_ids": entry_order_ids,
                 "timings": timings,
             }
-        except Exception as e:
+        except OPERATIONAL_EXCEPTIONS as e:
             timings["total"] = time.perf_counter() - leg_start
             print(f"⏱️ Shift timings for {pos_symbol} -> {_timing_summary()}")
             return {
@@ -707,42 +672,50 @@ def exit_selected_legs(selected_legs):
         symbol = str(leg.get("tradingsymbol", "")).strip()
         exchange = str(leg.get("exchange", "")).strip().upper()
         if not symbol:
-            results.append({
-                "status": "failed",
-                "tradingsymbol": "",
-                "exchange": exchange,
-                "error": "Missing tradingsymbol",
-            })
+            results.append(
+                {
+                    "status": "failed",
+                    "tradingsymbol": "",
+                    "exchange": exchange,
+                    "error": "Missing tradingsymbol",
+                }
+            )
             continue
 
         pos = _resolve_open_position(open_positions, symbol, exchange=exchange)
         if pos is None:
-            results.append({
-                "status": "failed",
-                "tradingsymbol": symbol,
-                "exchange": exchange,
-                "error": "Position not found or already closed",
-            })
+            results.append(
+                {
+                    "status": "failed",
+                    "tradingsymbol": symbol,
+                    "exchange": exchange,
+                    "error": "Position not found or already closed",
+                }
+            )
             continue
 
         try:
             position_qty = abs(int(pos.get("quantity", 0)))
             order_ids = exit_position(pos, quantity=position_qty, fast=True)
-            results.append({
-                "status": "success",
-                "tradingsymbol": pos.get("tradingsymbol"),
-                "exchange": pos.get("exchange"),
-                "quantity": position_qty,
-                "order_ids": order_ids,
-            })
-        except Exception as e:
-            results.append({
-                "status": "failed",
-                "tradingsymbol": pos.get("tradingsymbol"),
-                "exchange": pos.get("exchange"),
-                "quantity": abs(int(pos.get("quantity", 0))),
-                "error": str(e),
-            })
+            results.append(
+                {
+                    "status": "success",
+                    "tradingsymbol": pos.get("tradingsymbol"),
+                    "exchange": pos.get("exchange"),
+                    "quantity": position_qty,
+                    "order_ids": order_ids,
+                }
+            )
+        except OPERATIONAL_EXCEPTIONS as e:
+            results.append(
+                {
+                    "status": "failed",
+                    "tradingsymbol": pos.get("tradingsymbol"),
+                    "exchange": pos.get("exchange"),
+                    "quantity": abs(int(pos.get("quantity", 0))),
+                    "error": str(e),
+                }
+            )
 
     succeeded = sum(1 for item in results if item.get("status") == "success")
     failed = sum(1 for item in results if item.get("status") == "failed")
@@ -752,8 +725,6 @@ def exit_selected_legs(selected_legs):
         "failed": failed,
         "results": results,
     }
-
-
 
 
 def has_existing_stoploss(kite, symbol, orders_cache=None):
@@ -769,32 +740,34 @@ def has_existing_stoploss(kite, symbol, orders_cache=None):
                 and order["order_type"] == "SL"  # Covers both SL-M and SL-L
             ):
                 return order["order_id"]
-    except Exception as e:
+    except OPERATIONAL_EXCEPTIONS as e:
         print(f"❌ Error checking SL for {symbol}:", e)
     return False
 
 
-
-
 def place_stoploss_order(position, *, ltp=None, sl_trigger_price=None, fast=False):
-    
 
-
-    stoploss_point = 9 # Adjust this value as needed
+    stoploss_point = 9  # Adjust this value as needed
 
     if sl_trigger_price is None:
         if ltp is None and not fast:
             try:
-                ltp_data = kite.ltp(f"{position['exchange']}:{position['tradingsymbol']}")
-                ltp = ltp_data[f"{position['exchange']}:{position['tradingsymbol']}"]["last_price"]
+                ltp_data = kite.ltp(
+                    f"{position['exchange']}:{position['tradingsymbol']}"
+                )
+                ltp = ltp_data[f"{position['exchange']}:{position['tradingsymbol']}"][
+                    "last_price"
+                ]
                 print(f"💰 LTP for {position['tradingsymbol']}: {ltp}")
-            except Exception as e:
+            except OPERATIONAL_EXCEPTIONS as e:
                 print(f"❌ Failed to fetch LTP for {position['tradingsymbol']}: {e}")
                 ltp = None
         if ltp is not None:
-            sl_trigger_price = round(ltp + ltp / 4, 1)  # Placing SL at 25% above current LTP
+            sl_trigger_price = round(
+                ltp + ltp / 4, 1
+            )  # Placing SL at 25% above current LTP
         else:
-            sl_trigger_price = round(position['average_price'] + stoploss_point, 1)
+            sl_trigger_price = round(position["average_price"] + stoploss_point, 1)
 
     total_qty = abs(position["quantity"])
 
@@ -816,15 +789,18 @@ def place_stoploss_order(position, *, ltp=None, sl_trigger_price=None, fast=Fals
                 price=sl_trigger_price,
                 trigger_price=sl_trigger_price - 0.5,
                 product=position["product"],
-                variety="regular"
+                variety="regular",
             )
             if not fast:
-                print(f"✅ SL order placed: Qty={chunk_qty}, Trigger={sl_trigger_price}, Order ID={order_id}")
+                print(
+                    f"✅ SL order placed: Qty={chunk_qty}, Trigger={sl_trigger_price}, Order ID={order_id}"
+                )
                 beep()
             return order_id
 
         if fast and len(chunks) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
+
             max_workers = min(3, len(chunks))
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 futures = [ex.submit(_place_chunk, qty) for qty in chunks]
@@ -835,15 +811,22 @@ def place_stoploss_order(position, *, ltp=None, sl_trigger_price=None, fast=Fals
                 order_ids.append(_place_chunk(qty))
 
         return order_ids
-    except Exception as e:
+    except OPERATIONAL_EXCEPTIONS as e:
         print(f"❌ Failed to place SL for {position['tradingsymbol']}: {e}")
         return None
+
 
 def stoploss_order_button():
     try:
         # This function can be called from the UI when the user clicks a button to place SL orders manually
         positions = kite.positions()["net"]
-        option_positions = [p for p in positions if p["quantity"] < 0 and p["tradingsymbol"].endswith(("CE", "PE")) and p['exchange'] in ('BFO','NFO')]
+        option_positions = [
+            p
+            for p in positions
+            if p["quantity"] < 0
+            and p["tradingsymbol"].endswith(("CE", "PE"))
+            and p["exchange"] in ALLOWED_OPTION_EXCHANGES
+        ]
         total_positions = len(option_positions)
         skipped_existing = 0
         placed_orders = 0
@@ -852,7 +835,7 @@ def stoploss_order_button():
         # Fetch orders once to avoid per-symbol API calls
         try:
             orders_cache = kite.orders()
-        except Exception as e:
+        except OPERATIONAL_EXCEPTIONS as e:
             print(f"⚠️ Error fetching orders (falling back to per-symbol checks): {e}")
             orders_cache = None
 
@@ -869,12 +852,14 @@ def stoploss_order_button():
         # Prefetch LTPs in one call to avoid per-symbol latency
         ltp_map = {}
         try:
-            ltp_symbols = [f"{p['exchange']}:{p['tradingsymbol']}" for p in option_positions]
+            ltp_symbols = [
+                f"{p['exchange']}:{p['tradingsymbol']}" for p in option_positions
+            ]
             if ltp_symbols:
                 ltp_data = kite.ltp(ltp_symbols)
                 for k, v in ltp_data.items():
                     ltp_map[k] = v.get("last_price")
-        except Exception as e:
+        except OPERATIONAL_EXCEPTIONS as e:
             print(f"⚠️ Error prefetching LTPs (will use avg price): {e}")
 
         def _place_for_position(pos):
@@ -882,7 +867,9 @@ def stoploss_order_button():
             if symbol in existing_sl_symbols:
                 return ("skipped", symbol, None)
             if orders_cache is not None:
-                existing_order_id = has_existing_stoploss(kite, symbol, orders_cache=orders_cache)
+                existing_order_id = has_existing_stoploss(
+                    kite, symbol, orders_cache=orders_cache
+                )
                 if existing_order_id:
                     return ("skipped", symbol, None)
             print(f"📌 Placing SL for {symbol} from button click")
@@ -895,7 +882,9 @@ def stoploss_order_button():
         max_workers = min(2, total_positions) if total_positions > 0 else 1
         if total_positions > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                futures = [ex.submit(_place_for_position, pos) for pos in option_positions]
+                futures = [
+                    ex.submit(_place_for_position, pos) for pos in option_positions
+                ]
                 for f in as_completed(futures):
                     status, symbol, order_ids = f.result()
                     if status == "skipped":
@@ -921,7 +910,7 @@ def stoploss_order_button():
             "placed_orders": placed_orders,
             "failed_positions": failed_positions,
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error in stoploss_order_button: {e}")
         return {
             "positions": 0,
@@ -932,70 +921,75 @@ def stoploss_order_button():
         }
 
 
-
-
-
-
 def calculate_pnl(positions):
     try:
         pnl = 0
         Current_pos_credit = 0
 
         # Filter option symbols for batch LTP fetch
-        option_positions = [pos for pos in positions if pos['tradingsymbol'].strip().upper().endswith(("CE", "PE")) and pos['exchange'] in ('BFO','NFO','MCX')]
-        
+        option_positions = [
+            pos
+            for pos in positions
+            if pos["tradingsymbol"].strip().upper().endswith(("CE", "PE"))
+            and pos["exchange"] in ALLOWED_OPTION_EXCHANGES
+        ]
+
         # Subscribe all option positions to websocket
         position_tokens = []
         for pos in option_positions:
-            token = pos.get('instrument_token')
+            token = pos.get("instrument_token")
             try:
                 if token:
                     position_tokens.append(int(token))
             except (TypeError, ValueError):
                 pass
-        
+
         if position_tokens:
             ensure_tokens_subscribed(position_tokens)
-            
+
         for pos in option_positions:
             try:
                 symbol = f"{pos['exchange']}:{pos['tradingsymbol']}"
-                token = pos.get('instrument_token')
-                
+                token = pos.get("instrument_token")
+
                 ltp = None
                 try:
                     if token:
                         ltp = live_data.get(int(token))
                 except (TypeError, ValueError):
                     pass
-                
+
                 # Fallback to REST API if live data is not yet available
                 if ltp is None or ltp == 0:
                     try:
                         ltp_data = kite.ltp(symbol)
                         ltp = ltp_data.get(symbol, {}).get("last_price", 0)
-                    except Exception as rest_e:
-                        print(f"⚠️ calculate_pnl REST fallback failed for {symbol}: {rest_e}")
+                    except OPERATIONAL_EXCEPTIONS as rest_e:
+                        print(
+                            f"⚠️ calculate_pnl REST fallback failed for {symbol}: {rest_e}"
+                        )
                         ltp = 0
 
                 if ltp == 0:
                     continue
 
                 # Total P&L (realized + unrealized)
-                pnl += (pos['sell_value'] - pos['buy_value']) + (pos['quantity'] * ltp * pos['multiplier'])
+                pnl += (pos["sell_value"] - pos["buy_value"]) + (
+                    pos["quantity"] * ltp * pos["multiplier"]
+                )
 
                 # Option credit/debit
-                if pos['quantity'] < 0:
+                if pos["quantity"] < 0:
                     Current_pos_credit += ltp
-                elif pos['quantity'] > 0:
+                elif pos["quantity"] > 0:
                     Current_pos_credit -= ltp
 
-            except Exception as e:
+            except OPERATIONAL_EXCEPTIONS as e:
                 print(f"❌ Error calculating P&L for {pos['tradingsymbol']}: {e}")
 
         return pnl, Current_pos_credit
 
-    except Exception as e:
+    except OPERATIONAL_EXCEPTIONS as e:
         print(f"❌ Error in calculate_pnl: {e}")
         return 0, 0
 
@@ -1031,7 +1025,9 @@ def _exit_leg_group(legs, label, *, fast=True):
     max_workers = min(4, len(legs))
     print(f"⚡ Exiting {label} legs: {len(legs)} legs (workers={max_workers})")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(exit_position, pos, None, None, fast) for pos in legs]
+        futures = [
+            executor.submit(exit_position, pos, None, None, fast) for pos in legs
+        ]
         for future in as_completed(futures):
             if future.result():
                 succeeded += 1
@@ -1042,10 +1038,7 @@ def _exit_leg_group(legs, label, *, fast=True):
 
 
 def _wait_for_legs_closed(legs, label, *, timeout_sec=8.0, poll_interval_sec=0.2):
-    pending = {
-        (pos.get("exchange"), pos.get("tradingsymbol")): pos
-        for pos in legs
-    }
+    pending = {(pos.get("exchange"), pos.get("tradingsymbol")): pos for pos in legs}
     remaining_qty_by_key = {}
     deadline = time.time() + max(0.2, float(timeout_sec))
 
@@ -1054,12 +1047,14 @@ def _wait_for_legs_closed(legs, label, *, timeout_sec=8.0, poll_interval_sec=0.2
             open_positions = _open_option_positions_snapshot()
             for key in list(pending.keys()):
                 exchange, symbol = key
-                matched = _resolve_open_position(open_positions, symbol, exchange=exchange)
+                matched = _resolve_open_position(
+                    open_positions, symbol, exchange=exchange
+                )
                 current_abs_qty = abs(int(matched.get("quantity", 0))) if matched else 0
                 remaining_qty_by_key[key] = current_abs_qty
                 if current_abs_qty <= 0:
                     pending.pop(key, None)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
 
         if pending:
@@ -1073,13 +1068,15 @@ def _wait_for_legs_closed(legs, label, *, timeout_sec=8.0, poll_interval_sec=0.2
             "tradingsymbol": symbol,
             "remaining_qty": remaining_qty_by_key.get((exchange, symbol)),
         }
-        for exchange, symbol in pending.keys()
+        for exchange, symbol in pending
     ]
 
     return confirmed, len(pending), remaining_positions
 
 
-def exit_all_positions_short_then_long(positions, allowed_exchanges=('BFO', 'NFO', 'MCX'), reason=None):
+def exit_all_positions_short_then_long(
+    positions, allowed_exchanges=ALLOWED_OPTION_EXCHANGES, reason=None
+):
     result = _empty_exit_all_result(reason=reason)
     if not exit_all_lock.acquire(blocking=False):
         result["in_progress"] = True
@@ -1089,25 +1086,26 @@ def exit_all_positions_short_then_long(positions, allowed_exchanges=('BFO', 'NFO
 
     try:
         print(f"Exiting all positions ({reason or 'unspecified'})...")
-        
 
         allowed_exchanges = set(allowed_exchanges)
 
         short_legs = [
-            p for p in positions
-            if p['quantity'] < 0
-            and p['tradingsymbol'].endswith(("CE", "PE"))
-            and p['exchange'] in allowed_exchanges
+            p
+            for p in positions
+            if p["quantity"] < 0
+            and p["tradingsymbol"].endswith(("CE", "PE"))
+            and p["exchange"] in allowed_exchanges
         ]
         long_legs = [
-            p for p in positions
-            if p['quantity'] > 0
-            and p['tradingsymbol'].endswith(("CE", "PE"))
-            and p['exchange'] in allowed_exchanges
+            p
+            for p in positions
+            if p["quantity"] > 0
+            and p["tradingsymbol"].endswith(("CE", "PE"))
+            and p["exchange"] in allowed_exchanges
         ]
 
-        short_legs = [p for p in short_legs if p['quantity'] != 0]
-        long_legs = [p for p in long_legs if p['quantity'] != 0]
+        short_legs = [p for p in short_legs if p["quantity"] != 0]
+        long_legs = [p for p in long_legs if p["quantity"] != 0]
 
         result["short_legs"] = len(short_legs)
         result["long_legs"] = len(long_legs)
@@ -1115,7 +1113,9 @@ def exit_all_positions_short_then_long(positions, allowed_exchanges=('BFO', 'NFO
 
         if short_legs:
             print("📉 Phase 1: exiting short legs first")
-            result["short_succeeded"], result["short_failed"] = _exit_leg_group(short_legs, "short")
+            result["short_succeeded"], result["short_failed"] = _exit_leg_group(
+                short_legs, "short"
+            )
             print("⏳ Confirming short legs are closed before exiting hedges")
             (
                 result["short_confirmed"],
@@ -1126,13 +1126,17 @@ def exit_all_positions_short_then_long(positions, allowed_exchanges=('BFO', 'NFO
 
             if result["short_unconfirmed"] > 0:
                 result["failed"] = result["short_failed"] + result["short_unconfirmed"]
-                result["error"] = "Short exits were not confirmed; skipped hedge exits to avoid RMS rejection"
+                result["error"] = (
+                    "Short exits were not confirmed; skipped hedge exits to avoid RMS rejection"
+                )
                 print(f"⚠️ {result['error']}: {result['remaining_positions']}")
                 return result
 
         if long_legs:
             print("📈 Phase 2: exiting long legs after short phase completed")
-            result["long_succeeded"], result["long_failed"] = _exit_leg_group(long_legs, "long", fast=False)
+            result["long_succeeded"], result["long_failed"] = _exit_leg_group(
+                long_legs, "long", fast=False
+            )
             (
                 result["long_confirmed"],
                 result["long_unconfirmed"],
@@ -1148,9 +1152,11 @@ def exit_all_positions_short_then_long(positions, allowed_exchanges=('BFO', 'NFO
             + result["long_unconfirmed"]
         )
         if result["long_unconfirmed"] > 0:
-            result["error"] = "Some hedge exits were not confirmed after order placement"
+            result["error"] = (
+                "Some hedge exits were not confirmed after order placement"
+            )
         return result
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error in P&L monitoring: {e}")
         result["failed"] += 1
         result["error"] = str(e)
@@ -1163,27 +1169,30 @@ def Exiting_position(positions):
     # Button path: exit all option positions, shorts first and longs second.
     return exit_all_positions_short_then_long(
         positions,
-        allowed_exchanges=('BFO', 'NFO', 'MCX'),
+        allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
         reason="manual",
     )
 
+
 def routine_close(positions):
-    #exit the program after 10 PM
+    # exit the program after 10 PM
     ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
     if ist_time.hour >= 22:
-        print(f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down.")
-        send_telegram(f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down.")
+        print(
+            f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down."
+        )
+        send_telegram(
+            f"Routine close: It's after 10 PM IST (Current time: {ist_time.strftime('%I:%M %p')}). Exiting all positions and shutting down."
+        )
         try:
             exit_all_positions_short_then_long(
                 positions,
-                allowed_exchanges=('BFO', 'NFO', 'MCX'),
+                allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
                 reason="routine",
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"❌ Error during routine close exiting positions: {e}")
         os._exit(0)
-
-
 
 
 def Exiting_closing_account(positions):
@@ -1191,55 +1200,56 @@ def Exiting_closing_account(positions):
     # is_exiting = True
     try:
         print("🚨 Max loss threshold breached. Exiting all positions...")
-        
+
         exit_all_positions_short_then_long(
             positions,
-            allowed_exchanges=('BFO', 'NFO', 'MCX'),
+            allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
             reason="threshold",
         )
         ask_and_sleep_mac()
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error in P&L monitoring: {e}")
+
 
 def monitor_spreads():
     last_margin_update = 0  # Track last margin update time
     threshold_breach_start = None  # Track when pnl_total first breached threshold
     account_close = False
-    
-    while True:       
+
+    while True:
         try:
             positions = kite.positions()["net"]
             global pnl_total, Current_pos_credit, available_margin
-            
+
             # Update margin every 2 seconds
             current_time = time.time()
             if current_time - last_margin_update >= 2:
-                available_margin = kite.margins('equity')['net']
+                available_margin = kite.margins("equity")["net"]
                 last_margin_update = current_time
-            
+
             pnl_total, Current_pos_credit = calculate_pnl(positions)
-            
+
             if pnl_total <= threshold:
                 if threshold_breach_start is None:
                     threshold_breach_start = current_time
-                elif current_time - threshold_breach_start >= 2:
+                elif current_time - threshold_breach_start >= 2:  # noqa: SIM102
                     if not account_close:
                         Exiting_closing_account(positions)
                         account_close = True
             else:
                 threshold_breach_start = None
-            
+
             routine_close(positions)
-            time.sleep(.2)  # Standard monitoring interval
-        except Exception as e:
+            time.sleep(0.2)  # Standard monitoring interval
+        except Exception as e:  # noqa: BLE001
             print(f"❌ Error in monitor_spreads loop: {e}")
             time.sleep(5)  # Longer sleep on error
         finally:
             # Always reset processing flag when done
             set_processing_state(False)
 
+
 # === Run ===
 if __name__ == "__main__":
-   monitor_spreads()
-    
+    monitor_spreads()
