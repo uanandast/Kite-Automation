@@ -1,4 +1,3 @@
-# flake8: noqa: N999
 import os
 import re
 import time
@@ -7,12 +6,12 @@ from datetime import datetime
 from threading import Lock
 from zoneinfo import ZoneInfo
 
-import requests
+import requests  # type: ignore
 from kiteconnect import KiteConnect
 from kiteconnect.exceptions import KiteException
 
 from Core.Delta_IV import ensure_tokens_subscribed, live_data
-from Core.Gemini_AI import motivate_trader
+from Core.GeminiAI import motivate_trader
 from Core.monitor_config import (
     ACCOUNT_LOCK_POSITION_CHECK_SECONDS,
     ACCOUNT_LOCK_POSITION_POLL_SECONDS,
@@ -93,7 +92,7 @@ def ask_and_sleep_mac():
         # exit(0)
         # else:
         #     print("🛑 Sleep cancelled by user.")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"⚠️ Could not display popup or sleep: {e}")
     finally:
         _check_open_positions_during_account_lock()
@@ -156,7 +155,7 @@ def cancel_all_sl_orders(fast=False):
                     print(
                         f"❌ Cancelled SL order {o['order_id']} for {o['tradingsymbol']}"
                     )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 errors += 1
                 print(
                     f"⚠️ Error cancelling SL order {o['order_id']} for {o['tradingsymbol']}: {e}"
@@ -178,7 +177,7 @@ def cancel_all_sl_orders(fast=False):
             "cancelled": cancelled,
             "errors": errors,
         }
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"⚠️ Error fetching orders for cancellation: {e}")
         return {
             "requested": 0,
@@ -910,7 +909,7 @@ def stoploss_order_button():
             "placed_orders": placed_orders,
             "failed_positions": failed_positions,
         }
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"❌ Error in stoploss_order_button: {e}")
         return {
             "positions": 0,
@@ -1054,7 +1053,7 @@ def _wait_for_legs_closed(legs, label, *, timeout_sec=8.0, poll_interval_sec=0.2
                 remaining_qty_by_key[key] = current_abs_qty
                 if current_abs_qty <= 0:
                     pending.pop(key, None)
-        except Exception:  # noqa: BLE001, S110
+        except Exception:  # noqa: S110
             pass
 
         if pending:
@@ -1156,7 +1155,7 @@ def exit_all_positions_short_then_long(
                 "Some hedge exits were not confirmed after order placement"
             )
         return result
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"❌ Error in P&L monitoring: {e}")
         result["failed"] += 1
         result["error"] = str(e)
@@ -1190,7 +1189,7 @@ def routine_close(positions):
                 allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
                 reason="routine",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"❌ Error during routine close exiting positions: {e}")
         os._exit(0)
 
@@ -1208,7 +1207,7 @@ def Exiting_closing_account(positions):
         )
         ask_and_sleep_mac()
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"❌ Error in P&L monitoring: {e}")
 
 
@@ -1242,7 +1241,7 @@ def monitor_spreads():
 
             routine_close(positions)
             time.sleep(0.2)  # Standard monitoring interval
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"❌ Error in monitor_spreads loop: {e}")
             time.sleep(5)  # Longer sleep on error
         finally:

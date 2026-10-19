@@ -58,7 +58,7 @@ class GeminiAI:
             #os.system(f'say "{response.text}"')
             print(f"💬 Motivational message: {response.text}")
             send_telegram(f"💬 Motivational message: {response.text}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"⚠️ Error generating motivational message: {e}")
 
 
@@ -77,5 +77,5 @@ try:
         motivate_trader = GeminiAI(client).motivate_trader
     else:
         print("⚠️ No Gemini API key or OPEN_API_KEY found. Skipping Gemini client initialization.")
-except Exception as e:  # noqa: BLE001
+except Exception as e:
     print(f"❌ Error initializing Gemini client: {e}")

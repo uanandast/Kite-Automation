@@ -45,7 +45,7 @@ class KiteConnection:
             kite.profile()
             print("✅ Kite connection check passed.")
             return True
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             print(f"❌ Kite connection check failed: {error}")
             return False
 
@@ -72,7 +72,7 @@ class KiteConnection:
 
         try:
             self.refresh()
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             print(f"❌ Failed to run login.py: {error}")
             return False
 

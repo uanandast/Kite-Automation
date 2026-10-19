@@ -6,7 +6,14 @@ import numpy as np
 from kiteconnect import KiteConnect, KiteTicker
 
 # Re-export the pricing helpers for existing callers of Core.Delta_IV.
-from Core.option_math import BS_CALL, BS_PUT, N, bs_delta, implied_vol  # noqa: F401
+from Core.option_math import (  # noqa: F401
+    BS_CALL,
+    BS_PUT,
+    N,
+    bs_delta,
+    implied_vol,
+    vectorized_iv_and_delta,
+)
 from Core.shared_resources import (
     clear_option_instrument_cache,
     get_option_instrument_cache,
@@ -47,11 +54,18 @@ spot_token = INDEX_CONFIG[selected_index_key]["spot_token"]
 strike_step = INDEX_CONFIG[selected_index_key]["strike_step"]
 strike_prices = []
 option_tokens = {}
+option_token_by_strike_and_type = {}
 option_meta_by_symbol = {}
 instrument_lookup_by_exchange = {}
 subscribed_tokens = []
 
 stradle_price = 0
+
+_market_data_version = 0
+_last_condor_result = None
+_last_condor_version = -1
+_last_condor_spot = None
+_last_condor_time = 0.0
 
 
 def _normalize_option_instrument(meta):
@@ -94,10 +108,13 @@ def _configure_index_data(index_key):
         spot_token, \
         strike_step, \
         option_tokens, \
+        option_token_by_strike_and_type, \
         strike_prices, \
-        live_data, \
         option_meta_by_symbol, \
-        instrument_lookup_by_exchange
+        instrument_lookup_by_exchange, \
+        _market_data_version, \
+        _last_condor_result, \
+        _last_condor_version
 
     normalized_index_key = (index_key or "").strip().lower()
     if normalized_index_key not in INDEX_CONFIG:
@@ -132,6 +149,10 @@ def _configure_index_data(index_key):
         }
         for inst in nearest_expiry_options
     }
+    option_token_by_strike_and_type = {
+        (inst["strike"], inst["instrument_type"]): inst["instrument_token"]
+        for inst in nearest_expiry_options
+    }
     # Keep metadata for all expiries so current open positions can still compute delta.
     option_meta_by_symbol = {
         inst["tradingsymbol"]: {
@@ -151,6 +172,9 @@ def _configure_index_data(index_key):
     live_data.clear()
     instrument_lookup_by_exchange = {}
     _publish_option_instrument_cache()
+    _last_condor_result = None
+    _last_condor_version = -1
+    _market_data_version += 1
 
 
 def _build_exchange_option_lookup(exchange):
@@ -177,7 +201,7 @@ def _build_exchange_option_lookup(exchange):
                 "exchange": inst.get("exchange"),
                 "instrument_token": inst.get("instrument_token"),
             }
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"⚠️ Unable to build option lookup for {exchange_norm}: {e}")
         lookup = {}
 
@@ -290,14 +314,13 @@ def get_ltp_cached(ltp_key):
                 "last_price"
             )
             _ltp_fallback_time[ltp_key] = now_t
-        except Exception:  # noqa: BLE001
+        except Exception:
             _ltp_fallback_cache[ltp_key] = None
             _ltp_fallback_time[ltp_key] = now_t
     return _ltp_fallback_cache.get(ltp_key)
 
 
 def ensure_tokens_subscribed(tokens):
-    global subscribed_tokens
     new_subscriptions = []
     for t in tokens:
         if t and t not in subscribed_tokens:
@@ -394,8 +417,11 @@ def get_delta_from_position(options_data, future_price):
 
             strike = opt_details["strike"]
             opt_type = opt_details["type"]
-            expiry_datetime = datetime.combine(opt_details["expiry"], dt.time(15, 30))
-            T = (expiry_datetime - datetime.now()).total_seconds() / (
+            local_tz = dt.datetime.now().astimezone().tzinfo
+            expiry_datetime = datetime.combine(
+                opt_details["expiry"], dt.time(15, 30), tzinfo=local_tz
+            )
+            T = (expiry_datetime - datetime.now(tz=local_tz)).total_seconds() / (
                 365 * 24 * 60 * 60
             )
             if T <= 0:
@@ -459,43 +485,55 @@ def select_iron_condor_from_data(
         round(target_hedge_pe_strike / difference_in_strikes) * difference_in_strikes
     )
 
-    # Get the exact option tokens for all strikes
-    short_ce_token = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["strike"] == short_ce_strike and v["type"] == "CE"
-        ),
-        None,
-    )
-    short_pe_token = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["strike"] == short_pe_strike and v["type"] == "PE"
-        ),
-        None,
-    )
-    hedge_ce_token = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["strike"] == hedge_ce_strike and v["type"] == "CE"
-        ),
-        None,
-    )
-    hedge_pe_token = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["strike"] == hedge_pe_strike and v["type"] == "PE"
-        ),
-        None,
-    )
+    # Get the exact option tokens for all strikes via O(1) lookup
+    short_ce_token = option_token_by_strike_and_type.get((short_ce_strike, "CE"))
+    short_pe_token = option_token_by_strike_and_type.get((short_pe_strike, "PE"))
+    hedge_ce_token = option_token_by_strike_and_type.get((hedge_ce_strike, "CE"))
+    hedge_pe_token = option_token_by_strike_and_type.get((hedge_pe_strike, "PE"))
+
+    if not all([short_ce_token, short_pe_token, hedge_ce_token, hedge_pe_token]):
+        if not short_ce_token:
+            short_ce_token = next(
+                (
+                    k
+                    for k, v in option_tokens.items()
+                    if v["strike"] == short_ce_strike and v["type"] == "CE"
+                ),
+                None,
+            )
+        if not short_pe_token:
+            short_pe_token = next(
+                (
+                    k
+                    for k, v in option_tokens.items()
+                    if v["strike"] == short_pe_strike and v["type"] == "PE"
+                ),
+                None,
+            )
+        if not hedge_ce_token:
+            hedge_ce_token = next(
+                (
+                    k
+                    for k, v in option_tokens.items()
+                    if v["strike"] == hedge_ce_strike and v["type"] == "CE"
+                ),
+                None,
+            )
+        if not hedge_pe_token:
+            hedge_pe_token = next(
+                (
+                    k
+                    for k, v in option_tokens.items()
+                    if v["strike"] == hedge_pe_strike and v["type"] == "PE"
+                ),
+                None,
+            )
 
     if not all([short_ce_token, short_pe_token, hedge_ce_token, hedge_pe_token]):
         print("❌ Could not find exact strikes for all positions")
         return {}, 0.0
+
+    local_tz = dt.datetime.now().astimezone().tzinfo
 
     # Get the option data for all positions
     def get_option_data(token, strike, opt_type):
@@ -508,8 +546,10 @@ def select_iron_condor_from_data(
                 live_data[spot_token],
                 strike,
                 (
-                    datetime.combine(option_tokens[token]["expiry"], dt.time(15, 30))
-                    - datetime.now()
+                    datetime.combine(
+                        option_tokens[token]["expiry"], dt.time(15, 30), tzinfo=local_tz
+                    )
+                    - datetime.now(tz=local_tz)
                 ).total_seconds()
                 / (365 * 24 * 60 * 60),
                 0.08,
@@ -519,9 +559,11 @@ def select_iron_condor_from_data(
                     strike,
                     (
                         datetime.combine(
-                            option_tokens[token]["expiry"], dt.time(15, 30)
+                            option_tokens[token]["expiry"],
+                            dt.time(15, 30),
+                            tzinfo=local_tz,
                         )
-                        - datetime.now()
+                        - datetime.now(tz=local_tz)
                     ).total_seconds()
                     / (365 * 24 * 60 * 60),
                     0.08,
@@ -620,20 +662,33 @@ def min_strike_selection(spot):
 
 
 def on_ticks(ws, ticks):
-
+    global _market_data_version
     for tick in ticks:
         token = tick["instrument_token"]
         ltp = tick["last_price"]
         live_data[token] = ltp
+    _market_data_version += 1
 
 
-def get_current_iron_condor():
+def get_current_iron_condor(force=False):
     if spot_token not in live_data:
         return {}, None, [], None, None, None, None, None, None
 
-    now = datetime.now()
+    global _last_condor_result, _last_condor_version, _last_condor_spot, _last_condor_time
+    now_t = time.time()
+    current_spot = live_data[spot_token]
+    if (
+        not force
+        and _last_condor_result is not None
+        and _market_data_version == _last_condor_version
+        and current_spot == _last_condor_spot
+        and (now_t - _last_condor_time < 0.5)
+    ):
+        return _last_condor_result
+
+    now = datetime.now().astimezone()
     r = 0.08  # risk-free rate
-    spot_price = live_data[spot_token]
+    spot_price = current_spot
     atm_strike = min_strike_selection(spot_price)
 
     if not strike_prices:
@@ -645,27 +700,11 @@ def get_current_iron_condor():
             range(len(strike_prices)), key=lambda i: abs(strike_prices[i] - atm_strike)
         )
 
-    # positions = kite.positions()['net']
-    # option_positions = [pos for pos in positions if pos['tradingsymbol'].strip().upper().endswith(("CE", "PE")) and pos['exchange'] in ('BFO','NFO')]
     strike_selected = strike_prices[max(0, atm_index - 20) : atm_index + 21]
-    ce_atm_ltp = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["type"] == "CE" and v["strike"] == atm_strike
-        ),
-        None,
-    )
-    pe_atm_ltp = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["type"] == "PE" and v["strike"] == atm_strike
-        ),
-        None,
-    )
-    ce_atm_ltp = live_data.get(ce_atm_ltp)
-    pe_atm_ltp = live_data.get(pe_atm_ltp)
+    ce_atm_token = option_token_by_strike_and_type.get((atm_strike, "CE"))
+    pe_atm_token = option_token_by_strike_and_type.get((atm_strike, "PE"))
+    ce_atm_ltp = live_data.get(ce_atm_token) if ce_atm_token is not None else None
+    pe_atm_ltp = live_data.get(pe_atm_token) if pe_atm_token is not None else None
     if ce_atm_ltp is None or pe_atm_ltp is None:
         return {}, None, [], None, None, None, None, spot_price, atm_strike
 
@@ -676,26 +715,15 @@ def get_current_iron_condor():
     future_atm_strike = (
         min_strike_selection(future_price) if future_price else atm_strike
     )
-    # print(f"Future ATM Strike: {future_atm_strike}, Future Price: {future_price}, Spot Price: {spot_price}")
 
-    ce_fut_atm_ltp = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["type"] == "CE" and v["strike"] == future_atm_strike
-        ),
-        None,
+    ce_fut_atm_token = option_token_by_strike_and_type.get((future_atm_strike, "CE"))
+    pe_fut_atm_token = option_token_by_strike_and_type.get((future_atm_strike, "PE"))
+    ce_fut_atm_ltp = (
+        live_data.get(ce_fut_atm_token) if ce_fut_atm_token is not None else None
     )
-    pe_fut_atm_ltp = next(
-        (
-            k
-            for k, v in option_tokens.items()
-            if v["type"] == "PE" and v["strike"] == future_atm_strike
-        ),
-        None,
+    pe_fut_atm_ltp = (
+        live_data.get(pe_fut_atm_token) if pe_fut_atm_token is not None else None
     )
-    ce_fut_atm_ltp = live_data.get(ce_fut_atm_ltp)
-    pe_fut_atm_ltp = live_data.get(pe_fut_atm_ltp)
     if ce_fut_atm_ltp is None or pe_fut_atm_ltp is None:
         return (
             {},
@@ -714,60 +742,70 @@ def get_current_iron_condor():
     )
     strangle_credit = ce_fut_atm_ltp + pe_fut_atm_ltp
 
-    selected_option_tokens = {
-        k: v for k, v in option_tokens.items() if v["strike"] in strike_selected
-    }
-    options_data = []
-
+    local_tz = now.tzinfo
+    items_to_price = []
     for strike in strike_selected:
-        for opt_type in ["CE", "PE"]:
-            token = next(
-                (
-                    k
-                    for k, v in selected_option_tokens.items()
-                    if v["strike"] == strike and v["type"] == opt_type
-                ),
-                None,
-            )
+        for opt_type in ("CE", "PE"):
+            token = option_token_by_strike_and_type.get((strike, opt_type))
             if not token or token not in live_data:
                 continue
 
             opt_price = live_data[token]
+            meta = option_tokens.get(token)
+            if not meta or opt_price <= 0:
+                continue
+
             expiry_datetime = datetime.combine(
-                option_tokens[token]["expiry"], dt.time(15, 30)
+                meta["expiry"], dt.time(15, 30), tzinfo=local_tz
             )
             T = (expiry_datetime - now).total_seconds() / (365 * 24 * 60 * 60)
-            option_type = "call" if opt_type == "CE" else "put"
-            iv = implied_vol(opt_price, spot_price, strike, T, r, option_type)
+            if T <= 0:
+                continue
+
+            items_to_price.append(
+                (meta["tradingsymbol"], strike, opt_type, float(opt_price), T)
+            )
+
+    options_data = []
+    if items_to_price:
+        prices_arr = np.array([x[3] for x in items_to_price], dtype=np.float64)
+        strikes_arr = np.array([x[1] for x in items_to_price], dtype=np.float64)
+        times_arr = np.array([x[4] for x in items_to_price], dtype=np.float64)
+        is_call_arr = np.array([x[2] == "CE" for x in items_to_price], dtype=bool)
+
+        ivs, deltas = vectorized_iv_and_delta(
+            prices_arr,
+            spot_price,
+            future_price,
+            strikes_arr,
+            times_arr,
+            r,
+            is_call_arr,
+        )
+
+        for (tradingsymbol, strike, opt_type, opt_price, _), iv, delta_val in zip(
+            items_to_price, ivs, deltas
+        ):
             if np.isnan(iv) or iv > 3:
                 continue
-            delta = bs_delta(future_price, strike, T, r, iv, option_type)
 
             options_data.append(
                 {
-                    "instrument_token": selected_option_tokens[token]["tradingsymbol"],
+                    "instrument_token": tradingsymbol,
                     "strike": strike,
                     "type": opt_type,
                     "ltp": float(opt_price),
                     "iv": float(iv),
-                    "delta": float(delta),
+                    "delta": float(delta_val),
                 }
             )
 
-    # stradle = strike_prices[atm_index]
-    # strangle_credit = sum(ltp['ltp'] for ltp in options_data if ltp['strike'] == stradle)
     result, net_delta = select_iron_condor_from_data(
         options_data, strangle_credit, future_atm_strike
     )
     delta = get_delta_from_position(options_data, future_price)
-    # #print("Selected Iron Condor:", net_delta)
 
-    # ce_atm_ltp = next((ltp for ltp in options_data if ltp['type'] == 'CE' and ltp['strike'] == stradle), None)
-    # pe_atm_ltp = next((ltp for ltp in options_data if ltp['type'] == 'PE' and ltp['strike'] == stradle), None)
-    # future_price = spot_price+(ce_atm_ltp['ltp']-pe_atm_ltp['ltp']) if ce_atm_ltp and pe_atm_ltp else None
-    # Skew = pe_atm_ltp['ltp'] - ce_atm_ltp['ltp'] if ce_atm_ltp and pe_atm_ltp else None
-
-    return (
+    result_tuple = (
         result,
         net_delta,
         options_data,
@@ -778,6 +816,11 @@ def get_current_iron_condor():
         spot_price,
         future_atm_strike,
     )
+    _last_condor_result = result_tuple
+    _last_condor_version = _market_data_version
+    _last_condor_spot = spot_price
+    _last_condor_time = now_t
+    return result_tuple
 
 
 def on_connect(ws, response):

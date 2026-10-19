@@ -48,7 +48,7 @@ class TradingRuntime:
         try:
             set_monitoring_state(True)
             monitor_module.monitor_spreads()
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             print(f"❌ Error in monitor_spreads: {error!s}")
             time.sleep(1)
         finally:
@@ -57,34 +57,37 @@ class TradingRuntime:
     def _update_iron_condor_data(self) -> None:
         if self.state.get_current_iron_condor is None:
             return
+        last_values = None
         while True:
             try:
                 with self.state.index_update_lock:
                     values = self.state.get_current_iron_condor()
-                (
-                    result,
-                    net_delta,
-                    options_data,
-                    strangle_credit,
-                    future_price,
-                    skew,
-                    delta,
-                    spot_price,
-                    atm_strike,
-                ) = values
-                self.state.latest_iron_condor_data = {
-                    "legs": result,
-                    "net_delta": round(net_delta, 4) if net_delta is not None else None,
-                    "chain": options_data,
-                    "strangle_credit": strangle_credit,
-                    "future_price": future_price,
-                    "skew": skew,
-                    "delta": delta,
-                    "spot_price": spot_price,
-                    "atm_strike": atm_strike,
-                }
+                if values is not last_values:
+                    (
+                        result,
+                        net_delta,
+                        options_data,
+                        strangle_credit,
+                        future_price,
+                        skew,
+                        delta,
+                        spot_price,
+                        atm_strike,
+                    ) = values
+                    self.state.latest_iron_condor_data = {
+                        "legs": result,
+                        "net_delta": round(net_delta, 4) if net_delta is not None else None,
+                        "chain": options_data,
+                        "strangle_credit": strangle_credit,
+                        "future_price": future_price,
+                        "skew": skew,
+                        "delta": delta,
+                        "spot_price": spot_price,
+                        "atm_strike": atm_strike,
+                    }
+                    last_values = values
                 time.sleep(0.2)
-            except Exception as error:  # noqa: BLE001
+            except Exception as error:
                 print(f"Error in update_iron_condor_data: {error!s}")
                 time.sleep(2)
 

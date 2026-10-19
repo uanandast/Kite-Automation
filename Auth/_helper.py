@@ -68,7 +68,7 @@ class RequestToken:
                     driver.find_element(By.XPATH, "//button[@type='submit']").click()
                     break
 
-                except Exception:  # noqa: BLE001
+                except Exception:
                     print(f"Retrying TOTP... {attempt+1}")
                     time.sleep(2)
 
@@ -91,7 +91,7 @@ class RequestToken:
             
             return request_token
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"❌ Error during login: {e}")
             return None
 

@@ -3,7 +3,7 @@ name = "kite-fast-api"
 version = "0.1.0"
 description = "FastAPI migration for Kite App"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -35,3 +35,9 @@ pythonpath = ["."]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-q"
+
+[tool.ruff.lint]
+# These legacy modules are imported by the existing application using their
+# historical names, and the browser/login flows intentionally use broad
+# exception fallbacks to keep automation running.
+ignore = ["BLE001", "N999"]

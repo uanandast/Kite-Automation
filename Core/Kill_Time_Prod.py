@@ -53,7 +53,7 @@ def get_request_token():
         try:
             driver.save_screenshot(path)
             print(f"📸 Saved debug screenshot: {path}")
-        except Exception as screenshot_error:  # noqa: BLE001
+        except Exception as screenshot_error:
             print(f"⚠️ Could not save screenshot: {screenshot_error}")
 
     def click_with_retry(locator, step_name, attempts=3, timeout=DEFAULT_WAIT_SECONDS):

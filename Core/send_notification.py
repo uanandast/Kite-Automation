@@ -18,7 +18,7 @@ class TelegramNotifier:
         try:
             requests.get(url, params=params, timeout=TELEGRAM_TIMEOUT_SECONDS)
             print("📩 Telegram alert sent")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"❌ Telegram error: {e}")
 
 send_telegram = TelegramNotifier(kite_credentials.bot_token, kite_credentials.chat_id).send_message
