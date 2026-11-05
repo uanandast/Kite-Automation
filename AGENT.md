@@ -46,13 +46,12 @@ Do not commit credentials or generated tokens.
 
 Expected local files:
 
-- `.env.local` for local development.
-- `.env.lightsail` for Lightsail/Docker deployment.
-- `Cred/Cred_kite_PREM.ini` for Kite and Telegram credentials.
+- `.env` for Kite, Telegram, and optional application credentials.
+- `.env.local` or `.env.lightsail` only when environment-specific overrides are needed.
 - `Cred/access_token.txt` for the current Kite access token.
 
-`app.py` chooses the env file from `ENV`, or falls back to `.env.local` /
-`.env.lightsail` if present. Missing env files intentionally stop startup.
+`app.py` loads `.env` first, then an environment-specific `.env.<ENV>` file
+when present. Missing all environment files intentionally stops startup.
 
 ## Common Commands
 
@@ -127,7 +126,7 @@ uv run python -m compileall app.py main.py Auth Core
 ## Deployment Notes
 
 - Docker runs `uv run uvicorn app:app --host 0.0.0.0 --port 5000`.
-- `docker-compose.yml` uses host networking, `.env.lightsail`, and
+- `docker-compose.yml` uses host networking, `.env`, and
   `TZ=Asia/Kolkata`.
 - Cron should call Docker Compose directly from the project directory, for
   example `docker-compose up -d`.

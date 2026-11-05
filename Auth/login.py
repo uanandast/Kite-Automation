@@ -1,6 +1,4 @@
-import configparser
 import time
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pyotp
@@ -10,17 +8,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
-# === Your Kite credentials ===
+from Cred._base import ACCESS_TOKEN_PATH, kite_credentials
 
-config = configparser.ConfigParser()
-config_path = Path(__file__).parent.parent / "Cred" / "Cred_kite_PREM.ini"
-config.read(config_path)
-
-api_key = config['Kite']['api_key']
-api_secret = config['Kite']['api_secret']
-user_id = config['Kite']['user_id']
-password = config['Kite']['password']
-totp_secret = config['Kite']['totp_secret']  
 
 def get_request_token():
     # Setup Chrome
@@ -29,18 +18,21 @@ def get_request_token():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
     try:
-        login_url = f"https://kite.zerodha.com/connect/login?v=3&api_key={api_key}"
+        login_url = (
+            "https://kite.zerodha.com/connect/login?v=3"
+            f"&api_key={kite_credentials.api_key}"
+        )
         driver.get(login_url)
 
         # Wait and login
         time.sleep(2)
-        driver.find_element(By.ID, "userid").send_keys(user_id)
-        driver.find_element(By.ID, "password").send_keys(password)
+        driver.find_element(By.ID, "userid").send_keys(kite_credentials.user_id)
+        driver.find_element(By.ID, "password").send_keys(kite_credentials.password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
 
         # Wait for TOTP screen
         time.sleep(2)
-        otp = pyotp.TOTP(totp_secret).now()
+        otp = pyotp.TOTP(kite_credentials.totp_secret).now()
         print(f"✅ TOTP: {otp}")
         driver.find_element(By.XPATH, "//input[@type='number']").send_keys(otp)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
@@ -71,10 +63,13 @@ def get_request_token():
 # Run the flow
 if __name__ == "__main__":
     request_token = get_request_token()
-    kite = KiteConnect(api_key=api_key)
-    data = kite.generate_session(request_token, api_secret=api_secret)
+    if not request_token:
+        raise RuntimeError("Login failed: request_token is None")
+    kite = KiteConnect(api_key=kite_credentials.api_key)
+    data = kite.generate_session(request_token, api_secret=kite_credentials.api_secret)
     access_token = data["access_token"]
-    with open("Cred/access_token.txt", "w") as f:
-        f.write(access_token)
+    kite_credentials.access_token = access_token
+    ACCESS_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ACCESS_TOKEN_PATH.write_text(access_token)
 
-    print("Access token saved!")
+    print(f"Access token saved to {ACCESS_TOKEN_PATH}!")

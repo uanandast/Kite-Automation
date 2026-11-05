@@ -1,6 +1,7 @@
 import datetime as dt
 import time
 from datetime import datetime
+from threading import Lock
 
 import numpy as np
 from kiteconnect import KiteConnect, KiteTicker
@@ -66,6 +67,8 @@ _last_condor_result = None
 _last_condor_version = -1
 _last_condor_spot = None
 _last_condor_time = 0.0
+_order_update_lock = Lock()
+_order_update_version = 0
 
 
 def _normalize_option_instrument(meta):
@@ -670,6 +673,19 @@ def on_ticks(ws, ticks):
     _market_data_version += 1
 
 
+def on_order_update(ws, data):
+    """Record Kite's asynchronous order event for the position monitor."""
+    global _order_update_version
+    with _order_update_lock:
+        _order_update_version += 1
+
+
+def get_order_update_version():
+    """Return the latest WebSocket order-update version safely."""
+    with _order_update_lock:
+        return _order_update_version
+
+
 def get_current_iron_condor(force=False):
     if spot_token not in live_data:
         return {}, None, [], None, None, None, None, None, None
@@ -840,6 +856,7 @@ def on_error(ws, code, reason):
 
 
 kws.on_ticks = on_ticks
+kws.on_order_update = on_order_update
 kws.on_connect = on_connect
 kws.on_close = on_close
 kws.on_error = on_error

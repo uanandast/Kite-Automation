@@ -10,7 +10,11 @@ import requests  # type: ignore
 from kiteconnect import KiteConnect
 from kiteconnect.exceptions import KiteException
 
-from Core.Delta_IV import ensure_tokens_subscribed, live_data
+from Core.Delta_IV import (
+    ensure_tokens_subscribed,
+    get_order_update_version,
+    live_data,
+)
 from Core.GeminiAI import motivate_trader
 from Core.monitor_config import (
     ACCOUNT_LOCK_POSITION_CHECK_SECONDS,
@@ -19,6 +23,8 @@ from Core.monitor_config import (
     INDEX_FREEZE_QTY,
     INDEX_STRIKE_STEP,
     MARGIN_BUFFER,
+    MONITOR_LOOP_SECONDS,
+    POSITION_RECONCILIATION_SECONDS,
 )
 from Core.send_notification import send_telegram
 
@@ -1213,16 +1219,33 @@ def Exiting_closing_account(positions):
 
 def monitor_spreads():
     last_margin_update = 0  # Track last margin update time
+    last_positions_update = 0.0
+    last_order_update_version = -1
+    positions = None
     threshold_breach_start = None  # Track when pnl_total first breached threshold
     account_close = False
 
     while True:
         try:
-            positions = kite.positions()["net"]
             global pnl_total, Current_pos_credit, available_margin
 
-            # Update margin every 2 seconds
             current_time = time.time()
+            order_update_version = get_order_update_version()
+            should_refresh_positions = (
+                positions is None
+                or order_update_version != last_order_update_version
+                or current_time - last_positions_update
+                >= POSITION_RECONCILIATION_SECONDS
+            )
+            if should_refresh_positions:
+                # Order updates are streamed through KiteTicker. Periodic
+                # reconciliation prevents stale positions if an event is missed.
+                positions = kite.positions()["net"]
+                last_positions_update = current_time
+                last_order_update_version = order_update_version
+
+            # Margin is not delivered by KiteTicker, so keep its low-frequency
+            # REST refresh.
             if current_time - last_margin_update >= 2:
                 available_margin = kite.margins("equity")["net"]
                 last_margin_update = current_time
@@ -1240,7 +1263,9 @@ def monitor_spreads():
                 threshold_breach_start = None
 
             routine_close(positions)
-            time.sleep(0.2)  # Standard monitoring interval
+            # Recalculate risk frequently from live WebSocket prices without
+            # repeatedly polling the positions endpoint.
+            time.sleep(MONITOR_LOOP_SECONDS)
         except Exception as e:
             print(f"❌ Error in monitor_spreads loop: {e}")
             time.sleep(5)  # Longer sleep on error

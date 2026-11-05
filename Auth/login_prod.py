@@ -13,7 +13,8 @@ if __name__ == "__main__":
     kite = KiteConnect(api_key=kite_credentials.api_key)
     data = kite.generate_session(request_token, api_secret=kite_credentials.api_secret)
     access_token = data["access_token"]
-    kite_credentials.access_token = access_token  
+    kite_credentials.access_token = access_token
+    ACCESS_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     ACCESS_TOKEN_PATH.write_text(access_token)
 
     print(f"Access token saved to {ACCESS_TOKEN_PATH}!")

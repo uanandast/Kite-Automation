@@ -14,10 +14,13 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    """Load the environment selected by ENV or the available env-file fallback."""
+    """Load .env first, then an optional environment-specific override."""
     environment = os.getenv("ENV")
     if not environment:
-        if Path(".env.local").exists():
+        if Path(".env").exists():
+            load_dotenv(".env", override=False)
+            environment = os.getenv("ENV", "local")
+        elif Path(".env.local").exists():
             environment = "local"
         elif Path(".env.lightsail").exists():
             environment = "lightsail"
@@ -27,8 +30,9 @@ def load_settings() -> Settings:
             )
             sys.exit(1)
     env_file = Path(f".env.{environment}")
-    if not env_file.exists():
+    if env_file.exists():
+        load_dotenv(env_file, override=True)
+    elif not Path(".env").exists():
         print(f"❌ Environment file '{env_file}' not found. Script closing.")
         sys.exit(1)
-    load_dotenv(env_file, override=True)
     return Settings(environment=os.getenv("ENV", environment))

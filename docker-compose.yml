@@ -5,7 +5,7 @@ services:
     volumes:
       - .:/app
     env_file:
-      - .env.lightsail
+      - .env
     environment:
       - ENV=lightsail
       - CHROME_BIN=/usr/bin/chromium

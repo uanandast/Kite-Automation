@@ -63,13 +63,13 @@ def get_request_token():
 
         # Wait and login
         time.sleep(2)
-        driver.find_element(By.ID, "userid").send_keys(kite_credentials.USER_ID)
-        driver.find_element(By.ID, "password").send_keys(kite_credentials.PASSWORD)
+        driver.find_element(By.ID, "userid").send_keys(kite_credentials.user_id)
+        driver.find_element(By.ID, "password").send_keys(kite_credentials.password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
 
         # Wait for TOTP screen
         time.sleep(2)
-        otp = pyotp.TOTP(kite_credentials.TOTP_SECRET).now()
+        otp = pyotp.TOTP(kite_credentials.totp_secret).now()
         print(f"✅ TOTP: {otp}")
         driver.find_element(By.XPATH, "//input[@type='number']").send_keys(otp)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()

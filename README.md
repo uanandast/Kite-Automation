@@ -27,12 +27,20 @@ A high-performance, real-time options trading automation system built for the Ze
 - Docker & Docker Compose (optional, for containerized run)
 
 ### 2. Environment Configuration
-Create a `.env.local` file in the root directory:
-```ini
+Create a `.env` file in the root directory from `.env.example`, then fill in
+the Kite and Telegram values:
+```dotenv
 ENV=local
-OPEN_API_KEY=your_gemini_api_key
+KITE_API_KEY=your_kite_api_key
+KITE_API_SECRET=your_kite_api_secret
+KITE_USER_ID=your_kite_user_id
+KITE_PASSWORD=your_kite_password
+KITE_TOTP_SECRET=your_totp_secret
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_telegram_chat_id
 ```
-Ensure your `Cred/Cred_kite_PREM.ini` contains your Kite API credentials and BOT tokens.
+`.env.local` and `.env.lightsail` remain optional overrides for compatibility;
+their values take precedence when `ENV` selects one.
 
 ### 3. Local Run (without Docker)
 ```bash
@@ -53,7 +61,7 @@ docker-compose up --build
    cd Kite-Automation
    ```
 2. **Setup Credentials**:
-   - Manually copy your `Cred/` folder and `.env.lightsail` to the server (these are ignored by git).
+   - Manually copy your `.env` file to the server (it is ignored by git).
 3. **Deploy / Start from the Project Directory**:
    ```bash
    docker-compose up -d
