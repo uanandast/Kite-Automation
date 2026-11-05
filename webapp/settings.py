@@ -1,7 +1,6 @@
 """Environment configuration for the FastAPI application."""
 
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,25 +13,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    """Load .env first, then an optional environment-specific override."""
-    environment = os.getenv("ENV")
-    if not environment:
-        if Path(".env").exists():
-            load_dotenv(".env", override=False)
-            environment = os.getenv("ENV", "local")
-        elif Path(".env.local").exists():
-            environment = "local"
-        elif Path(".env.lightsail").exists():
-            environment = "lightsail"
-        else:
-            print(
-                "❌ ENV not set and no .env.local or .env.lightsail found. Script closing."
-            )
-            sys.exit(1)
-    env_file = Path(f".env.{environment}")
+    """Load the standard .env file when present.
+
+    Docker Compose can inject the same values directly into the container, so
+    the application never requires a file at runtime.
+    """
+    env_file = Path(".env")
     if env_file.exists():
-        load_dotenv(env_file, override=True)
-    elif not Path(".env").exists():
-        print(f"❌ Environment file '{env_file}' not found. Script closing.")
-        sys.exit(1)
-    return Settings(environment=os.getenv("ENV", environment))
+        load_dotenv(env_file, override=False)
+    return Settings(environment=os.getenv("ENV", "local"))

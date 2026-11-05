@@ -39,8 +39,7 @@ KITE_TOTP_SECRET=your_totp_secret
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 ```
-`.env.local` and `.env.lightsail` remain optional overrides for compatibility;
-their values take precedence when `ENV` selects one.
+Docker Compose forwards the same `.env` values into the application container.
 
 ### 3. Local Run (without Docker)
 ```bash

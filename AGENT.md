@@ -47,11 +47,10 @@ Do not commit credentials or generated tokens.
 Expected local files:
 
 - `.env` for Kite, Telegram, and optional application credentials.
-- `.env.local` or `.env.lightsail` only when environment-specific overrides are needed.
 - `Cred/access_token.txt` for the current Kite access token.
 
-`app.py` loads `.env` first, then an environment-specific `.env.<ENV>` file
-when present. Missing all environment files intentionally stops startup.
+`app.py` loads `.env` when present and otherwise uses container-injected
+environment variables. It defaults `ENV` to `local`.
 
 ## Common Commands
 

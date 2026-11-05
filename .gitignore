@@ -15,9 +15,6 @@ nohup.out
 logs/
 *.log
 
-# Docker
-.dockerignore
-
 # OS
 .DS_Store
 

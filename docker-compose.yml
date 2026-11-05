@@ -1,13 +1,16 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
     network_mode: "host"
     volumes:
       - .:/app
+      # Keep the image's Linux dependencies from being hidden by the source bind mount.
+      - /app/.venv
     env_file:
       - .env
     environment:
-      - ENV=lightsail
       - CHROME_BIN=/usr/bin/chromium
       - CHROMEDRIVER_PATH=/usr/bin/chromedriver
       - TZ=Asia/Kolkata

@@ -1,0 +1,30 @@
+# Local environments and source-control data
+.git/
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Credentials and deployment-local configuration
+.env
+.env.*
+!.env.example
+Cred/
+
+# Python tooling and generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Runtime data and developer tooling
+logs/
+*.log
+graphify-out/
+.vscode/
+.DS_Store
+docker-compose.override.yml

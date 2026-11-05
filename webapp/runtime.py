@@ -95,9 +95,7 @@ class TradingRuntime:
     async def lifespan(self):
         try:
             self.initialize()
-            location = (
-                "MacBook" if self.settings.environment == "local" else "Lightsail"
-            )
+            location = "MacBook" if self.settings.environment == "local" else "Docker"
             send_telegram(f"🚀 Trading bot started successfully on {location}")
         except Exception as error:
             print(f"❌ Startup failed: {error}")

@@ -8,29 +8,11 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"
 
-# Detect environment FIRST (must come from system or default file name)
-env = os.getenv("ENV")
-
-# If ENV is not set, try to infer from existing env files
-if not env:
-    if (PROJECT_ROOT / ".env.local").exists():
-        env = "local"
-    elif (PROJECT_ROOT / ".env.lightsail").exists():
-        env = "lightsail"
-    else:
-        print("❌ ENV not set and no .env.local or .env.lightsail found. Script closing.")
-        sys.exit(1)
-
-# Now load the correct env file
-env_file = PROJECT_ROOT / f".env.{env}"
-if not env_file.exists():
-    print(f"❌ Environment file '{env_file}' not found. Script closing.")
-    sys.exit(1)
-
-load_dotenv(env_file, override=True)
-
-# Confirm ENV after loading
-env = os.getenv("ENV")
+# Docker may supply variables directly; loading .env is optional for local use.
+env_file = PROJECT_ROOT / ".env"
+if env_file.exists():
+    load_dotenv(env_file, override=False)
+env = os.getenv("ENV", "local")
 
 def system_close():
     try:
