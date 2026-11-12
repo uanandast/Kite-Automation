@@ -8,11 +8,29 @@ from urllib.parse import parse_qs, urlparse
 import pyotp
 from kiteconnect import KiteConnect
 from selenium import webdriver
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 from Cred._base import ACCESS_TOKEN_PATH, kite_credentials
+
+WAIT_SECONDS = 20
+STALE_RETRIES = 3
+
+
+def _retry_stale(action, description: str):
+    """Retry an interaction when Kite replaces its login form mid-render."""
+    for attempt in range(1, STALE_RETRIES + 1):
+        try:
+            return action()
+        except StaleElementReferenceException:
+            if attempt == STALE_RETRIES:
+                raise
+            print(f"ℹ️ Kite login form refreshed; retrying {description} ({attempt}/{STALE_RETRIES}).")
+            time.sleep(0.5)
 
 
 def get_request_token():
@@ -47,21 +65,40 @@ def get_request_token():
             f"&api_key={kite_credentials.api_key}"
         )
         driver.get(login_url)
+        wait = WebDriverWait(driver, WAIT_SECONDS)
 
-        # Wait and login
-        time.sleep(2)
-        driver.find_element(By.ID, "userid").send_keys(kite_credentials.user_id)
-        driver.find_element(By.ID, "password").send_keys(kite_credentials.password)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        def submit_credentials():
+            username = wait.until(EC.element_to_be_clickable((By.ID, "userid")))
+            username.clear()
+            username.send_keys(kite_credentials.user_id)
 
-        # Wait for TOTP screen
-        time.sleep(2)
-        otp = pyotp.TOTP(kite_credentials.totp_secret).now()
-        driver.find_element(By.XPATH, "//input[@type='number']").send_keys(otp)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+            password = wait.until(EC.element_to_be_clickable((By.ID, "password")))
+            password.clear()
+            password.send_keys(kite_credentials.password)
+            wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
+            ).click()
 
-        # Wait for redirect
-        time.sleep(5)
+        _retry_stale(submit_credentials, "credentials")
+
+        def submit_totp():
+            otp_input = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@type='number']"))
+            )
+            otp_input.clear()
+            otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
+            wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
+            ).click()
+
+        _retry_stale(submit_totp, "TOTP")
+
+        try:
+            wait.until(lambda current_driver: "request_token" in current_driver.current_url)
+        except TimeoutException:
+            print("❌ Timed out waiting for Kite to return a request token.")
+            return None
+
         current_url = driver.current_url
 
         # Extract request_token from redirect URL
