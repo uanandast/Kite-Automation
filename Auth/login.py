@@ -33,6 +33,11 @@ def _retry_stale(action, description: str):
             time.sleep(0.5)
 
 
+def _request_token_from_url(url: str) -> str | None:
+    query = parse_qs(urlparse(url).query)
+    return query.get("request_token", [None])[0]
+
+
 def get_request_token():
     # Use the system Chromium/ChromeDriver supplied by Docker when available.
     # webdriver-manager can download a driver that is incompatible with the
@@ -81,30 +86,46 @@ def get_request_token():
 
         _retry_stale(submit_credentials, "credentials")
 
-        def submit_totp():
-            otp_input = wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//input[@type='number']"))
-            )
-            otp_input.clear()
-            otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
-            wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
-            ).click()
+        for attempt in range(1, STALE_RETRIES + 1):
+            # A stale exception from the submit button can occur after the
+            # click was accepted. Do not submit a second TOTP in that case.
+            request_token = _request_token_from_url(driver.current_url)
+            if request_token:
+                print("✅ Request token retrieved.")
+                return request_token
 
-        _retry_stale(submit_totp, "TOTP")
+            try:
+                otp_input = wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//input[@type='number']"))
+                )
+                otp_input.clear()
+                otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
+                wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
+                ).click()
+                break
+            except StaleElementReferenceException:
+                if attempt == STALE_RETRIES:
+                    raise
+                print(f"ℹ️ Kite login form refreshed; checking TOTP result ({attempt}/{STALE_RETRIES}).")
+                try:
+                    request_token = WebDriverWait(driver, 8).until(
+                        lambda current_driver: _request_token_from_url(
+                            current_driver.current_url
+                        )
+                    )
+                    print("✅ Request token retrieved.")
+                    return request_token
+                except TimeoutException:
+                    continue
 
         try:
-            wait.until(lambda current_driver: "request_token" in current_driver.current_url)
+            request_token = wait.until(
+                lambda current_driver: _request_token_from_url(current_driver.current_url)
+            )
         except TimeoutException:
             print("❌ Timed out waiting for Kite to return a request token.")
             return None
-
-        current_url = driver.current_url
-
-        # Extract request_token from redirect URL
-        parsed = urlparse(current_url)
-        query = parse_qs(parsed.query)
-        request_token = query.get("request_token", [None])[0]
 
         if request_token:
             print("✅ Request token retrieved.")
