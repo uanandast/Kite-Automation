@@ -26,4 +26,6 @@ COPY . ./
 
 EXPOSE 5000
 
-CMD ["uv", "run", "--no-sync", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
+# docker-compose mounts /app/.venv as a persistent volume. Sync on startup so
+# that volume receives dependency additions from the locked project metadata.
+CMD ["sh", "-c", "uv sync --frozen --no-dev --no-install-project && exec uv run --no-sync uvicorn app:app --host 0.0.0.0 --port 5000"]

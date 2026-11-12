@@ -4,8 +4,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
+from webapp.auth import DashboardAuthMiddleware
 from webapp.routes import create_router
+from webapp.settings import Settings
 from webapp.state import RuntimeState
 
 
@@ -53,12 +56,53 @@ def client(state):
     return TestClient(app)
 
 
+@pytest.fixture
+def secured_client(state):
+    settings = Settings(
+        environment="local",
+        dashboard_username="dashboard-user",
+        dashboard_password="dashboard-password",
+        session_secret="a-secure-test-session-secret-that-is-long-enough",
+    )
+    app = FastAPI()
+    app.state.settings = settings
+    app.add_middleware(DashboardAuthMiddleware, settings=settings)
+    app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
+    app.include_router(create_router(state, Jinja2Templates(directory="templates")))
+    return TestClient(app)
+
+
 def test_dashboard_root_returns_html(client):
     response = client.get("/")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "Option Chain Dashboard" in response.text
+
+
+def test_dashboard_requires_login_and_allows_a_valid_session(secured_client):
+    unauthenticated = secured_client.get("/", headers={"accept": "text/html"})
+    assert unauthenticated.status_code == 200
+    assert unauthenticated.url.path == "/login"
+
+    invalid = secured_client.post(
+        "/login", data={"username": "dashboard-user", "password": "wrong"}
+    )
+    assert invalid.status_code == 401
+
+    login = secured_client.post(
+        "/login",
+        data={"username": "dashboard-user", "password": "dashboard-password"},
+    )
+    assert login.status_code == 200
+    assert login.url.path == "/"
+    assert "Option Chain Dashboard" in login.text
+
+    assert secured_client.get("/pnl").status_code == 200
+    logout = secured_client.post("/logout")
+    assert logout.status_code == 200
+    assert logout.url.path == "/login"
+    assert secured_client.get("/pnl").status_code == 401
 
 
 def test_option_data_includes_runtime_and_market_state(client):

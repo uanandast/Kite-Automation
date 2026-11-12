@@ -3,8 +3,8 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from webapp.formatters import (
@@ -14,12 +14,36 @@ from webapp.formatters import (
     format_shift_message,
     format_stoploss_message,
 )
+from webapp.auth import credentials_are_valid
 from webapp.schemas import ExitLegsRequest, IndexRequest, ShiftRequest
 from webapp.state import RuntimeState
 
 
 def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
     router = APIRouter()
+
+    @router.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request):
+        return templates.TemplateResponse(request=request, name="login.html")
+
+    @router.post("/login", response_class=HTMLResponse)
+    def login(request: Request, username: str = Form(), password: str = Form()):
+        settings = request.app.state.settings
+        if not credentials_are_valid(settings, username, password):
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={"error": "Invalid username or password."},
+                status_code=401,
+            )
+        request.session.clear()
+        request.session["dashboard_user"] = settings.dashboard_username
+        return RedirectResponse(url="/", status_code=303)
+
+    @router.post("/logout")
+    def logout(request: Request):
+        request.session.clear()
+        return RedirectResponse(url="/login", status_code=303)
 
     def monitor_or_503():
         if state.monitor_module is None:

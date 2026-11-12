@@ -18,6 +18,8 @@ dependencies = [
     "python-dotenv",
     "jinja2>=3.1.6",
     "requests>=2.34.2",
+    "python-multipart>=0.0.20",
+    "itsdangerous>=2.2.0",
     "google-genai",
     "ruff>=0.16.10",
 ]
