@@ -8,7 +8,9 @@ ENV/
 env/
 
 # Project Specific
-Cred/
+# Keep the credential loader in the repository; credentials themselves stay local.
+Cred/*
+!Cred/_base.py
 .env*
 !.env.example
 nohup.out
