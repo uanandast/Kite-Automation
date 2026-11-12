@@ -62,12 +62,20 @@ class KiteConnection:
         child_env["PYTHONPATH"] = os.pathsep.join(
             part for part in (str(self.project_root), existing_pythonpath) if part
         )
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, str(login_path)],
-            check=True,
+            check=False,
             cwd=self.project_root,
             env=child_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+        if result.stdout:
+            print("--- login.py output ---")
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+            print("--- end login.py output ---")
+        result.check_returncode()
 
     def ensure_connection(self) -> bool:
         if self.verify():
