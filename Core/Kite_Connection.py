@@ -50,9 +50,12 @@ class KiteConnection:
             return False
 
     def refresh(self) -> None:
-        login_name = "login.py" if self.environment == "local" else "login_prod.py"
+        # ``login.py`` selects the installed browser driver when running in
+        # Docker and the local driver otherwise, so every environment uses
+        # the same tested token-refresh flow.
+        login_name = "login.py"
         login_path = self.project_root / "Auth" / login_name
-        print("🔐 Running login.py to refresh access token...")
+        print(f"🔐 Running {login_name} to refresh access token...")
 
         child_env = os.environ.copy()
         existing_pythonpath = child_env.get("PYTHONPATH")

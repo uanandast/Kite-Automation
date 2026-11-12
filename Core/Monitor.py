@@ -1262,7 +1262,7 @@ def monitor_spreads():
             else:
                 threshold_breach_start = None
 
-            routine_close(positions)
+            # routine_close(positions)
             # Recalculate risk frequently from live WebSocket prices without
             # repeatedly polling the positions endpoint.
             time.sleep(MONITOR_LOOP_SECONDS)

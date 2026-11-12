@@ -35,7 +35,7 @@ Rules:
   shift behavior.
 - `Core/shared_resources.py` stores shared monitoring state.
 - `Auth/login.py` is the local Selenium/TOTP login flow.
-- `Auth/login_prod.py` is the production/Lightsail Selenium login flow.
+- `Auth/login.py` is the shared local and production/Lightsail Selenium login flow.
 - `templates/` and `static/` contain the dashboard UI.
 - `Dockerfile` and `docker-compose.yml` are used for Docker/Lightsail
   deployment.

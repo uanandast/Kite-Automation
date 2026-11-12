@@ -1,4 +1,8 @@
+import os
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pyotp
@@ -12,10 +16,30 @@ from Cred._base import ACCESS_TOKEN_PATH, kite_credentials
 
 
 def get_request_token():
-    # Setup Chrome
+    # Use the system Chromium/ChromeDriver supplied by Docker when available.
+    # webdriver-manager can download a driver that is incompatible with the
+    # Chromium version installed in the image.
+    chrome_bin = os.getenv("CHROME_BIN")
+    chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
+    chrome_profile_dir = None
     options = webdriver.ChromeOptions()
-    options.add_argument("--start-maximized")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    if chrome_bin:
+        options.binary_location = chrome_bin
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--remote-debugging-port=0")
+        chrome_profile_dir = tempfile.mkdtemp(prefix="kite-login-chrome-")
+        options.add_argument(f"--user-data-dir={chrome_profile_dir}")
+    else:
+        options.add_argument("--start-maximized")
+
+    if chromedriver_path and Path(chromedriver_path).is_file():
+        service = Service(chromedriver_path)
+    else:
+        service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
 
     try:
         login_url = (
@@ -33,7 +57,6 @@ def get_request_token():
         # Wait for TOTP screen
         time.sleep(2)
         otp = pyotp.TOTP(kite_credentials.totp_secret).now()
-        print(f"✅ TOTP: {otp}")
         driver.find_element(By.XPATH, "//input[@type='number']").send_keys(otp)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
 
@@ -47,7 +70,7 @@ def get_request_token():
         request_token = query.get("request_token", [None])[0]
 
         if request_token:
-            print(f"✅ Request token: {request_token}")
+            print("✅ Request token retrieved.")
         else:
             print("❌ Failed to retrieve request token. Check login details or TOTP.")
         
@@ -59,6 +82,8 @@ def get_request_token():
 
     finally:
         driver.quit()
+        if chrome_profile_dir:
+            shutil.rmtree(chrome_profile_dir, ignore_errors=True)
 
 # Run the flow
 if __name__ == "__main__":

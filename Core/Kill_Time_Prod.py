@@ -166,7 +166,6 @@ def get_request_token():
         for attempt in range(3):
             try:
                 totp = pyotp.TOTP(kite_credentials.totp_secret).now()
-                print(f"✅ TOTP: {totp}")
 
                 totp_input = wait.until(
                     EC.element_to_be_clickable((By.ID, "userid"))
