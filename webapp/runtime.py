@@ -1,6 +1,7 @@
 """Kite runtime initialization and long-running background workers."""
 
 import importlib
+import os
 import time
 from contextlib import asynccontextmanager
 from threading import Thread
@@ -10,6 +11,9 @@ from Core.send_notification import send_telegram
 from Core.shared_resources import get_monitoring_state, set_monitoring_state
 from webapp.settings import Settings
 from webapp.state import RuntimeState
+
+DOCKER_WEBSITE_URL = "https://uanandast.duckdns.org"
+
 
 
 class TradingRuntime:
@@ -96,7 +100,15 @@ class TradingRuntime:
         try:
             self.initialize()
             location = "MacBook" if self.settings.environment == "local" else "Docker"
-            send_telegram(f"🚀 Trading bot started successfully on {location}")
+            message = f"🚀 Trading bot started successfully on {location}"
+            if location == "Docker":
+                website_url = (
+                    os.getenv("DASHBOARD_URL")
+                    or os.getenv("WEBSITE_URL")
+                    or DOCKER_WEBSITE_URL
+                )
+                message += f"\n🌐 {website_url}"
+            send_telegram(message)
         except Exception as error:
             print(f"❌ Startup failed: {error}")
             send_telegram(f"❌ Trading bot failed to start: {error}")
