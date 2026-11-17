@@ -6,10 +6,16 @@ matching driver are supplied by CHROME_BIN and CHROMEDRIVER_PATH.
 
 import os
 import shutil
+import sys
 import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+
+# Ensure project root is in sys.path so Core and Cred can be imported
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import pyotp
 from selenium import webdriver
@@ -20,7 +26,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
-from Core.send_notification import send_telegram
+try:
+    from Core.send_notification import send_telegram
+except ModuleNotFoundError:
+    from send_notification import send_telegram
+
 from Cred._base import kite_credentials
 
 DEFAULT_WAIT_SECONDS = 15
@@ -71,13 +81,14 @@ def _create_driver():
         raise
 
 
-def get_request_token():
-    driver = None
+def get_request_token(driver=None):
+    external_driver = driver is not None
     chrome_profile_dir = None
     success = False
 
     try:
-        driver, chrome_profile_dir = _create_driver()
+        if driver is None:
+            driver, chrome_profile_dir = _create_driver()
         wait = WebDriverWait(driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS)
 
         def screenshot(stage):
@@ -107,6 +118,64 @@ def get_request_token():
                     print(f"{name} click attempt {attempt} failed: {error}")
                     time.sleep(0.3)
             raise last_error
+
+        def click_confirm_button():
+            """Locate and click the final confirmation button in the modal or prompt."""
+            candidate_locators = [
+                # 1. Any button inside an active modal/dialog/popup with Confirm, Disable, Continue, Proceed, or Yes
+                (
+                    By.XPATH,
+                    (
+                        "//*[contains(@class, 'modal') or contains(@class, 'dialog') or contains(@class, 'popup') or @role='dialog']"
+                        "//button[contains(normalize-space(.), 'Confirm') or contains(normalize-space(.), 'Disable') or "
+                        "contains(normalize-space(.), 'Continue') or contains(normalize-space(.), 'Proceed') or "
+                        "contains(normalize-space(.), 'Yes') or contains(@class, 'btn-blue')]"
+                    ),
+                ),
+                # 2. Any button on the page explicitly reading Confirm, Disable, or Proceed
+                (
+                    By.XPATH,
+                    "//button[contains(normalize-space(.), 'Confirm') or contains(normalize-space(.), 'Disable') or contains(normalize-space(.), 'Proceed')]",
+                ),
+                # 3. Action button with btn-blue
+                (
+                    By.XPATH,
+                    "//button[contains(@class, 'btn-blue') and (@type='submit' or @type='button')]",
+                ),
+                # 4. Standard submit button fallback
+                (By.XPATH, "//button[@type='submit']"),
+            ]
+
+            last_err = None
+            for locator in candidate_locators:
+                try:
+                    btn = WebDriverWait(driver, 4, poll_frequency=FAST_POLL_SECONDS).until(
+                        EC.element_to_be_clickable(locator)
+                    )
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                    try:
+                        btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", btn)
+                    print(f"Confirm button clicked using locator: {locator[1]}")
+                    return btn
+                except Exception as err:
+                    last_err = err
+                    continue
+
+            # Diagnostics: log all visible buttons on page to identify the current modal structure
+            try:
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                btn_info = [
+                    f"<{b.tag_name} type='{b.get_attribute('type')}' class='{b.get_attribute('class')}'>{b.text.strip()}</button>"
+                    for b in buttons
+                    if b.is_displayed()
+                ]
+                print(f"⚠️ Visible buttons on page when confirm failed: {btn_info}")
+            except Exception as inspect_err:
+                print(f"Could not inspect visible buttons: {inspect_err}")
+            screenshot("confirm_error")
+            raise last_err or TimeoutException("Confirmation button not found in modal.")
 
         def segment_is_enabled(segment_id):
             toggle = driver.find_elements(By.ID, segment_id)
@@ -150,23 +219,40 @@ def get_request_token():
 
         for attempt in range(1, 4):
             try:
-                otp_input = wait.until(EC.element_to_be_clickable((By.ID, "userid")))
+                # The 2FA screen input on Kite is number/otp, not userid.
+                otp_input = wait.until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.XPATH,
+                            "//input[@type='number' or @id='otp' or contains(@placeholder, 'OTP') or contains(@placeholder, 'TOTP')]",
+                        )
+                    )
+                )
                 otp_input.clear()
                 otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
                 click_with_retry((By.XPATH, "//button[@type='submit']"), "TOTP submit")
                 WebDriverWait(
                     driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS
-                ).until(lambda current: "console.zerodha.com/dashboard" in current.current_url)
+                ).until(
+                    lambda current: "console.zerodha.com" in current.current_url
+                    and "kite.zerodha.com" not in current.current_url
+                )
                 break
             except (StaleElementReferenceException, TimeoutException) as error:
+                if (
+                    "console.zerodha.com" in driver.current_url
+                    and "kite.zerodha.com" not in driver.current_url
+                ):
+                    break
                 if attempt == 3:
                     raise
-                if "console.zerodha.com/dashboard" in driver.current_url:
-                    break
                 print(f"Kite refreshed during TOTP; retrying ({attempt}/3): {error}")
                 time.sleep(0.5)
 
-        wait.until(lambda current: "console.zerodha.com/dashboard" in current.current_url)
+        wait.until(
+            lambda current: "console.zerodha.com" in current.current_url
+            and "kite.zerodha.com" not in current.current_url
+        )
         driver.get("https://console.zerodha.com/account/segment-activation")
         wait.until(EC.presence_of_element_located((By.ID, "form_segment_manage")))
         for segment_id in SEGMENT_IDS:
@@ -184,9 +270,8 @@ def get_request_token():
             wait.until(EC.staleness_of(continue_button))
         except TimeoutException:
             print("Confirm modal opened in place; proceeding to confirmation.")
-        confirm_button = click_with_retry(
-            (By.XPATH, "//button[@type='submit' and contains(@class, 'btn-blue')]"), "Confirm"
-        )
+
+        confirm_button = click_confirm_button()
         try:
             wait.until(EC.staleness_of(confirm_button))
         except TimeoutException:
@@ -194,6 +279,7 @@ def get_request_token():
         success = True
     except Exception as error:
         print(f"Account closure failed: {error}")
+        screenshot("closure_failed")
     finally:
         message = "Account Closed Successfully" if success else "Account Closure Failed"
         print(message)
@@ -201,10 +287,11 @@ def get_request_token():
             send_telegram(("✅ " if success else "❌ ") + message)
         except Exception as error:
             print(f"Could not send Telegram notification: {error}")
-        if driver:
+        if driver and not external_driver:
             driver.quit()
         if chrome_profile_dir:
             shutil.rmtree(chrome_profile_dir, ignore_errors=True)
+    return success
 
 
 if __name__ == "__main__":

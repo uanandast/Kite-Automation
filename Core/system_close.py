@@ -25,6 +25,7 @@ def system_close():
         log_path = LOG_DIR / "system_close.log"
         child_env = os.environ.copy()
         child_env["ENV"] = env
+        child_env["PYTHONPATH"] = f"{PROJECT_ROOT}:{child_env.get('PYTHONPATH', '')}".rstrip(":")
 
         with log_path.open("a", buffering=1) as log_file:
             process = subprocess.Popen(
