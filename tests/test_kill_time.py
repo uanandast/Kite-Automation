@@ -36,6 +36,26 @@ def test_create_driver_missing_driver(tmp_path, monkeypatch):
         _create_driver()
 
 
+def test_create_driver_sets_headless(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    fake_chrome = tmp_path / "chrome"
+    fake_chrome.write_text("binary")
+    fake_driver = tmp_path / "chromedriver"
+    fake_driver.write_text("driver")
+    monkeypatch.setenv("CHROME_BIN", str(fake_chrome))
+    monkeypatch.setenv("CHROMEDRIVER_PATH", str(fake_driver))
+
+    with patch("Core.Kill_Time.webdriver.Chrome") as mock_chrome:
+        mock_chrome.return_value = MagicMock()
+        _driver, _profile_dir = _create_driver()
+        assert mock_chrome.called
+        options = mock_chrome.call_args[1]["options"]
+        assert "--headless=new" in options.arguments
+        assert "--no-sandbox" in options.arguments
+        assert "--disable-dev-shm-usage" in options.arguments
+
+
 def test_get_request_token_success(monkeypatch):
     mock_driver = MagicMock()
     mock_send = MagicMock()

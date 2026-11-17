@@ -63,7 +63,7 @@ def _create_driver():
         options.binary_location = chrome_bin
         options.page_load_strategy = "eager"
         for argument in (
-            # "--headless=new",
+            "--headless=new",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
