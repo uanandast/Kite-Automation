@@ -29,13 +29,13 @@ Rules:
 
 - `app.py` is the main FastAPI application used by local and Docker runs.
 - `main.py` is a small health/demo FastAPI app and is not the primary runtime.
-- `Core/Delta_IV.py` owns KiteTicker/WebSocket data, option-chain state, IV, and
+- `core/delta_iv.py` owns KiteTicker/WebSocket data, option-chain state, IV, and
   delta calculations.
-- `Core/Monitor.py` owns live position monitoring, P&L, stop loss, exit, and leg
+- `core/monitor.py` owns live position monitoring, P&L, stop loss, exit, and leg
   shift behavior.
-- `Core/shared_resources.py` stores shared monitoring state.
-- `Auth/login.py` is the local Selenium/TOTP login flow.
-- `Auth/login.py` is the shared local and production/Lightsail Selenium login flow.
+- `core/shared_resources.py` stores shared monitoring state.
+- `auth/login.py` is the local Selenium/TOTP login flow.
+- `auth/login.py` is the shared local and production/Lightsail Selenium login flow.
 - `templates/` and `static/` contain the dashboard UI.
 - `Dockerfile` and `docker-compose.yml` are used for Docker/Lightsail
   deployment.
@@ -47,7 +47,7 @@ Do not commit credentials or generated tokens.
 Expected local files:
 
 - `.env` for Kite, Telegram, and optional application credentials.
-- `Cred/access_token.txt` for the current Kite access token.
+- `cred/access_token.txt` for the current Kite access token.
 
 `app.py` loads `.env` when present and otherwise uses container-injected
 environment variables. It defaults `ENV` to `local`.
@@ -88,14 +88,14 @@ There is no formal test suite in the current repo. For syntax-level validation,
 prefer:
 
 ```bash
-uv run python -m compileall app.py main.py Auth Core
+uv run python -m compileall app.py main.py auth core
 ```
 
 ## Coding Guidelines
 
 - Preserve the existing module boundaries. API orchestration belongs in
-  `app.py`; market data and Greeks belong in `Core/Delta_IV.py`; order and
-  monitoring behavior belongs in `Core/Monitor.py`.
+  `app.py`; market data and Greeks belong in `core/delta_iv.py`; order and
+  monitoring behavior belongs in `core/monitor.py`.
 - Be careful with global state in `app.py`. Several endpoint actions are guarded
   by locks to prevent duplicate exits, stop losses, cancellations, and shifts.
 - Keep FastAPI response shapes stable unless the frontend is updated at the same
@@ -117,7 +117,7 @@ uv run python -m compileall app.py main.py Auth Core
   session unless the user explicitly asks for it.
 - Do not modify credential paths, token refresh behavior, order sequencing, or
   product/exchange normalization casually.
-- For changes touching `Core/Monitor.py` or order endpoints, inspect both the API
+- For changes touching `core/monitor.py` or order endpoints, inspect both the API
   handler and the underlying Kite call path before editing.
 - Prefer dry validation, unit-level checks, or mocked Kite clients for risky
   paths.
@@ -138,7 +138,7 @@ uv run python -m compileall app.py main.py Auth Core
 Before handing changes back:
 
 - Confirm no secrets, access tokens, logs, or credential files were added.
-- Run `uv run python -m compileall app.py main.py Auth Core` when Python files
+- Run `uv run python -m compileall app.py main.py auth core` when Python files
   changed.
 - For frontend changes, verify the page still loads and the relevant endpoint
   contract is unchanged or updated consistently.

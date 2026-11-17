@@ -15,7 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
-from Cred._base import ACCESS_TOKEN_PATH, kite_credentials
+from cred._base import ACCESS_TOKEN_PATH, kite_credentials
 
 WAIT_SECONDS = 20
 STALE_RETRIES = 3

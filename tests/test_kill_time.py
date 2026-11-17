@@ -4,7 +4,7 @@ import pytest
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 
-from Core.Kill_Time import (
+from core.kill_time import (
     SEGMENT_IDS,
     _create_driver,
     get_request_token,
@@ -46,7 +46,7 @@ def test_create_driver_sets_headless(tmp_path, monkeypatch):
     monkeypatch.setenv("CHROME_BIN", str(fake_chrome))
     monkeypatch.setenv("CHROMEDRIVER_PATH", str(fake_driver))
 
-    with patch("Core.Kill_Time.webdriver.Chrome") as mock_chrome:
+    with patch("core.kill_time.webdriver.Chrome") as mock_chrome:
         mock_chrome.return_value = MagicMock()
         _driver, _profile_dir = _create_driver()
         assert mock_chrome.called
@@ -59,7 +59,7 @@ def test_create_driver_sets_headless(tmp_path, monkeypatch):
 def test_get_request_token_success(monkeypatch):
     mock_driver = MagicMock()
     mock_send = MagicMock()
-    monkeypatch.setattr("Core.Kill_Time.send_telegram", mock_send)
+    monkeypatch.setattr("core.kill_time.send_telegram", mock_send)
 
     current_urls = [
         "https://console.zerodha.com/",
@@ -162,7 +162,7 @@ def test_get_request_token_success(monkeypatch):
 def test_get_request_token_failure(monkeypatch):
     mock_driver = MagicMock()
     mock_send = MagicMock()
-    monkeypatch.setattr("Core.Kill_Time.send_telegram", mock_send)
+    monkeypatch.setattr("core.kill_time.send_telegram", mock_send)
 
     mock_driver.get.side_effect = RuntimeError("Connection timed out")
 

@@ -1,6 +1,6 @@
 import requests
 
-from Cred._base import kite_credentials
+from cred._base import kite_credentials
 
 TELEGRAM_TIMEOUT_SECONDS = 2  # Timeout for Telegram requests
 

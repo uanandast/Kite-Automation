@@ -39,7 +39,6 @@ python_functions = ["test_*"]
 addopts = "-q"
 
 [tool.ruff.lint]
-# These legacy modules are imported by the existing application using their
-# historical names, and the browser/login flows intentionally use broad
-# exception fallbacks to keep automation running.
-ignore = ["BLE001", "N999"]
+# Browser and login flows intentionally use broad exception fallbacks to keep automation running.
+ignore = ["BLE001"]
+extend-select = ["N999"]

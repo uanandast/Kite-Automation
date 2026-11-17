@@ -6,9 +6,9 @@ import time
 from contextlib import asynccontextmanager
 from threading import Thread
 
-from Core.Kite_Connection import KiteConnection
-from Core.send_notification import send_telegram
-from Core.shared_resources import get_monitoring_state, set_monitoring_state
+from core.kite_connection import KiteConnection
+from core.send_notification import send_telegram
+from core.shared_resources import get_monitoring_state, set_monitoring_state
 from webapp.settings import Settings
 from webapp.state import RuntimeState
 
@@ -26,10 +26,10 @@ class TradingRuntime:
         if not self.kite_connection.ensure_connection():
             raise RuntimeError("Kite session unavailable even after running login.py")
         # The login refresh runs in a child process.  Synchronize its token
-        # into Cred._base before importing modules that create Kite clients.
+        # into cred._base before importing modules that create Kite clients.
         self.kite_connection.sync_access_token()
-        delta_module = importlib.import_module("Core.Delta_IV")
-        monitor_module = importlib.import_module("Core.Monitor")
+        delta_module = importlib.import_module("core.delta_iv")
+        monitor_module = importlib.import_module("core.monitor")
         self.state.monitor_module = monitor_module
         self.state.get_current_iron_condor = delta_module.get_current_iron_condor
         self.state.get_previous_day_close = delta_module.get_previous_day_close

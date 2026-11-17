@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CRED_DIR = PROJECT_ROOT / "Cred"
+CRED_DIR = PROJECT_ROOT / "cred"
 ACCESS_TOKEN_PATH = CRED_DIR / "access_token.txt"
 
 

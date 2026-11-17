@@ -6,7 +6,7 @@ from pathlib import Path
 
 from kiteconnect import KiteConnect
 
-from Cred._base import ACCESS_TOKEN_PATH, kite_credentials
+from cred._base import ACCESS_TOKEN_PATH, kite_credentials
 
 
 class KiteConnection:
@@ -25,7 +25,7 @@ class KiteConnection:
     def sync_access_token(self, access_token: str | None = None) -> str | None:
         """Keep the shared credentials object in sync with the token file.
 
-        ``Core.Delta_IV`` and ``Core.Monitor`` create their Kite clients at
+        ``core.delta_iv`` and ``core.monitor`` create their Kite clients at
         import time.  Updating only the token file (or a child login process)
         leaves those clients with the old ``None``/expired in-memory token.
         """
@@ -54,7 +54,7 @@ class KiteConnection:
         # Docker and the local driver otherwise, so every environment uses
         # the same tested token-refresh flow.
         login_name = "login.py"
-        login_path = self.project_root / "Auth" / login_name
+        login_path = self.project_root / "auth" / login_name
         print(f"🔐 Running {login_name} to refresh access token...")
 
         child_env = os.environ.copy()

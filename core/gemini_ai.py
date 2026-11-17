@@ -4,7 +4,7 @@ import os
 import requests
 from google.genai import Client
 
-from Core.send_notification import send_telegram
+from core.send_notification import send_telegram
 
 
 class GeminiAI:

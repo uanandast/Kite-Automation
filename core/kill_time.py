@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-# Ensure project root is in sys.path so Core and Cred can be imported
+# Ensure project root is in sys.path so core and cred can be imported
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -28,11 +28,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 try:
-    from Core.send_notification import send_telegram
+    from core.send_notification import send_telegram
 except ModuleNotFoundError:
     from send_notification import send_telegram
 
-from Cred._base import kite_credentials
+from cred._base import kite_credentials
 
 DEFAULT_WAIT_SECONDS = 15
 TRANSITION_WAIT_SECONDS = 6

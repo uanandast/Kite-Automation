@@ -69,15 +69,15 @@ docker-compose up --build
 ## 📂 Project Structure
 
 - `app.py`: Main FastAPI application and lifecycle management.
-- `Core/Monitor.py`: Active trade monitoring loop and P&L logic.
-- `Core/Delta_IV.py`: WebSocket management and Black-Scholes calculations.
-- `Auth/login.py`: Automated Selenium-based login and TOTP handling.
+- `core/monitor.py`: Active trade monitoring loop and P&L logic.
+- `core/delta_iv.py`: WebSocket management and Black-Scholes calculations.
+- `auth/login.py`: Automated Selenium-based login and TOTP handling.
 - `static/`: Frontend assets (CSS, JS, SVG).
 - `templates/`: Jinja2 HTML templates.
 - `Dockerfile` & `docker-compose.yml`: Containerization configuration.
 
 ## ⚠️ Security Notice
-This repository contains a `.gitignore` to prevent sensitive credentials (`Cred/`, `.env`) from being uploaded. **Never** remove these entries or upload your actual API secrets to a public repository.
+This repository contains a `.gitignore` to prevent sensitive credentials (`cred/`, `.env`) from being uploaded. **Never** remove these entries or upload your actual API secrets to a public repository.
 
 ---
 *Developed for high-speed algorithmic trading performance.*

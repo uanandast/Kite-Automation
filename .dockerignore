@@ -11,8 +11,8 @@ env/
 .env.*
 !.env.example
 # Ship the environment-based credential loader, never a generated access token.
-Cred/*
-!Cred/_base.py
+cred/*
+!cred/_base.py
 
 # Python tooling and generated files
 __pycache__/

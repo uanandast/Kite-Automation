@@ -1,4 +1,4 @@
-"""Dashboard API routes; trading behavior stays in Core.Monitor."""
+"""Dashboard API routes; trading behavior stays in core.monitor."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -7,6 +7,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from webapp.auth import credentials_are_valid
 from webapp.formatters import (
     format_cancel_sl_message,
     format_exit_message,
@@ -14,7 +15,6 @@ from webapp.formatters import (
     format_shift_message,
     format_stoploss_message,
 )
-from webapp.auth import credentials_are_valid
 from webapp.schemas import ExitLegsRequest, IndexRequest, ShiftRequest
 from webapp.state import RuntimeState
 

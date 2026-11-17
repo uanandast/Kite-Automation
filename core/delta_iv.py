@@ -6,8 +6,8 @@ from threading import Lock
 import numpy as np
 from kiteconnect import KiteConnect, KiteTicker
 
-# Re-export the pricing helpers for existing callers of Core.Delta_IV.
-from Core.option_math import (  # noqa: F401
+# Re-export the pricing helpers for existing callers of core.delta_iv.
+from core.option_math import (  # noqa: F401
     BS_CALL,
     BS_PUT,
     N,
@@ -15,12 +15,12 @@ from Core.option_math import (  # noqa: F401
     implied_vol,
     vectorized_iv_and_delta,
 )
-from Core.shared_resources import (
+from core.shared_resources import (
     clear_option_instrument_cache,
     get_option_instrument_cache,
     set_option_instrument_cache,
 )
-from Cred._base import kite_credentials
+from cred._base import kite_credentials
 
 kite = KiteConnect(api_key=kite_credentials.api_key)
 kite.set_access_token(kite_credentials.access_token)

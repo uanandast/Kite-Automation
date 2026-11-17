@@ -10,13 +10,13 @@ import requests  # type: ignore
 from kiteconnect import KiteConnect
 from kiteconnect.exceptions import KiteException
 
-from Core.Delta_IV import (
+from core.delta_iv import (
     ensure_tokens_subscribed,
     get_order_update_version,
     live_data,
 )
-from Core.GeminiAI import motivate_trader
-from Core.monitor_config import (
+from core.gemini_ai import motivate_trader
+from core.monitor_config import (
     ACCOUNT_LOCK_POSITION_CHECK_SECONDS,
     ACCOUNT_LOCK_POSITION_POLL_SECONDS,
     ALLOWED_OPTION_EXCHANGES,
@@ -26,14 +26,14 @@ from Core.monitor_config import (
     MONITOR_LOOP_SECONDS,
     POSITION_RECONCILIATION_SECONDS,
 )
-from Core.send_notification import send_telegram
+from core.send_notification import send_telegram
 
 # === Threading lock for monitor_spreads ===
-from Core.shared_resources import (
+from core.shared_resources import (
     set_processing_state,
 )
-from Core.system_close import system_close
-from Cred._base import kite_credentials
+from core.system_close import system_close
+from cred._base import kite_credentials
 
 kite = KiteConnect(api_key=kite_credentials.api_key)
 kite.set_access_token(kite_credentials.access_token)
@@ -225,7 +225,7 @@ def _compute_target_strike(current_strike, opt_type, shift_steps, strike_step):
 
 
 def _get_selected_index_key():
-    # Keep shift-leg path decoupled from Delta_IV imports.
+    # Keep shift-leg path decoupled from delta_iv imports.
     return ""
 
 

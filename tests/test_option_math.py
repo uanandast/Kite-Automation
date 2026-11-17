@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from Core.option_math import (
+from core.option_math import (
     BS_CALL,
     BS_PUT,
     bs_delta,
