@@ -13,6 +13,9 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 ENV UV_NO_CACHE=1
 ENV UV_COMPILE_BYTECODE=1
+# Make `python` in `docker compose exec` use the project environment rather
+# than the base image interpreter, which does not contain project packages.
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
