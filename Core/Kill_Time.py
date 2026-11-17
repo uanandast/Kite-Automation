@@ -11,6 +11,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Ensure project root is in sys.path so Core and Cred can be imported
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -37,6 +38,14 @@ DEFAULT_WAIT_SECONDS = 15
 TRANSITION_WAIT_SECONDS = 6
 FAST_POLL_SECONDS = 0.2
 SEGMENT_IDS = ("NSE_EQ", "BSE_EQ", "NSE_FO", "BSE_FO", "NSE_COM")
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def log_event(message, started_at=None):
+    """Write an IST timestamp and, when supplied, the elapsed phase duration."""
+    timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S %Z")
+    duration = "" if started_at is None else f" | elapsed: {time.perf_counter() - started_at:.2f}s"
+    print(f"[{timestamp}]{duration} {message}")
 
 
 def _create_driver():
@@ -54,7 +63,7 @@ def _create_driver():
         options.binary_location = chrome_bin
         options.page_load_strategy = "eager"
         for argument in (
-            "--headless=new",
+            # "--headless=new",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
@@ -85,10 +94,14 @@ def get_request_token(driver=None):
     external_driver = driver is not None
     chrome_profile_dir = None
     success = False
+    run_started_at = time.perf_counter()
+    log_event("Account-closure flow started.")
 
     try:
         if driver is None:
+            browser_started_at = time.perf_counter()
             driver, chrome_profile_dir = _create_driver()
+            log_event("Browser started.", browser_started_at)
         wait = WebDriverWait(driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS)
 
         def screenshot(stage):
@@ -101,6 +114,7 @@ def get_request_token(driver=None):
 
         def click_with_retry(locator, name, attempts=3, timeout=DEFAULT_WAIT_SECONDS):
             last_error = None
+            action_started_at = time.perf_counter()
             for attempt in range(1, attempts + 1):
                 try:
                     element = WebDriverWait(driver, timeout, poll_frequency=FAST_POLL_SECONDS).until(
@@ -111,11 +125,13 @@ def get_request_token(driver=None):
                         element.click()
                     except Exception:
                         driver.execute_script("arguments[0].click();", element)
-                    print(f"{name} clicked (attempt {attempt}).")
+                    log_event(f"{name} clicked (attempt {attempt}).", action_started_at)
                     return element
                 except Exception as error:
                     last_error = error
-                    print(f"{name} click attempt {attempt} failed: {error}")
+                    log_event(
+                        f"{name} click attempt {attempt} failed: {error}", action_started_at
+                    )
                     time.sleep(0.3)
             raise last_error
 
@@ -157,7 +173,7 @@ def get_request_token(driver=None):
                         btn.click()
                     except Exception:
                         driver.execute_script("arguments[0].click();", btn)
-                    print(f"Confirm button clicked using locator: {locator[1]}")
+                    log_event(f"Confirm button clicked using locator: {locator[1]}")
                     return btn
                 except Exception as err:
                     last_err = err
@@ -198,25 +214,33 @@ def get_request_token(driver=None):
             )
 
         def disable_segment(segment_id):
+            segment_started_at = time.perf_counter()
             if not segment_is_enabled(segment_id):
-                print(f"{segment_id} is already OFF; skipping.")
+                log_event(f"{segment_id} is already OFF; skipping.", segment_started_at)
                 return
             label = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f"label[for='{segment_id}']")))
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", label
             )
             wait.until(lambda _: segment_is_enabled(segment_id) in (False, None))
-            print(f"{segment_id} is now OFF.")
+            log_event(f"{segment_id} is now OFF.", segment_started_at)
 
+        login_started_at = time.perf_counter()
+        log_event("Opening Zerodha Console login page.")
         driver.get("https://console.zerodha.com/")
         wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Login with Kite')]"))).click()
+        log_event("Kite login form opened.", login_started_at)
+        credentials_started_at = time.perf_counter()
         wait.until(EC.presence_of_element_located((By.ID, "userid"))).send_keys(kite_credentials.user_id)
         driver.find_element(By.ID, "password").send_keys(kite_credentials.password)
         driver.find_element(By.XPATH, "//button[@type='submit']").click()
         WebDriverWait(driver, TRANSITION_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS).until(
             lambda current: not current.find_elements(By.ID, "password")
         )
+        log_event("Credentials submitted; waiting for TOTP.", credentials_started_at)
 
+        totp_started_at = time.perf_counter()
+        log_event("Starting TOTP verification.")
         for attempt in range(1, 4):
             try:
                 # The 2FA screen input on Kite is number/otp, not userid.
@@ -237,6 +261,7 @@ def get_request_token(driver=None):
                     lambda current: "console.zerodha.com" in current.current_url
                     and "kite.zerodha.com" not in current.current_url
                 )
+                log_event("TOTP accepted; signed in to Zerodha Console.", totp_started_at)
                 break
             except (StaleElementReferenceException, TimeoutException) as error:
                 if (
@@ -253,8 +278,11 @@ def get_request_token(driver=None):
             lambda current: "console.zerodha.com" in current.current_url
             and "kite.zerodha.com" not in current.current_url
         )
+        segment_page_started_at = time.perf_counter()
+        log_event("Opening account segment-activation page.")
         driver.get("https://console.zerodha.com/account/segment-activation")
         wait.until(EC.presence_of_element_located((By.ID, "form_segment_manage")))
+        log_event("Segment-activation page loaded.", segment_page_started_at)
         for segment_id in SEGMENT_IDS:
             try:
                 disable_segment(segment_id)
@@ -262,6 +290,8 @@ def get_request_token(driver=None):
                 print(f"Could not disable {segment_id}: {error}")
                 screenshot(f"{segment_id.lower()}_error")
 
+        continue_started_at = time.perf_counter()
+        log_event("Submitting selected segment changes.")
         continue_button = click_with_retry(
             (By.XPATH, "//button[contains(@class, 'btn-blue') and contains(normalize-space(.), 'Continue')]"),
             "Continue",
@@ -270,19 +300,24 @@ def get_request_token(driver=None):
             wait.until(EC.staleness_of(continue_button))
         except TimeoutException:
             print("Confirm modal opened in place; proceeding to confirmation.")
+        log_event("Confirmation dialog ready.", continue_started_at)
 
+        confirm_started_at = time.perf_counter()
+        log_event("Confirming account-segment closure.")
         confirm_button = click_confirm_button()
         try:
             wait.until(EC.staleness_of(confirm_button))
         except TimeoutException:
             wait.until(lambda current: current.execute_script("return document.readyState") == "complete")
         success = True
+        log_event("Account-segment closure confirmed.", confirm_started_at)
     except Exception as error:
-        print(f"Account closure failed: {error}")
-        screenshot("closure_failed")
+        log_event(f"Account closure failed: {error}", run_started_at)
+        if driver:
+            screenshot("closure_failed")
     finally:
         message = "Account Closed Successfully" if success else "Account Closure Failed"
-        print(message)
+        log_event(message, run_started_at)
         try:
             send_telegram(("✅ " if success else "❌ ") + message)
         except Exception as error:
