@@ -16,10 +16,7 @@ env = os.getenv("ENV", "local")
 
 def system_close():
     try:
-        if env == "local":
-            script_path = Path(__file__).parent / "Kill_Time.py"
-        else:
-            script_path = Path(__file__).parent / "Kill_Time_Prod.py"
+        script_path = Path(__file__).parent / "Kill_Time.py"
         if not script_path.exists():
             print(f"Target script not found: {script_path}")
             return
@@ -31,7 +28,7 @@ def system_close():
 
         with log_path.open("a", buffering=1) as log_file:
             process = subprocess.Popen(
-                [sys.executable, str(script_path)],
+                [sys.executable, "-m", "Core.Kill_Time"],
                 cwd=PROJECT_ROOT,
                 env=child_env,
                 stdout=log_file,

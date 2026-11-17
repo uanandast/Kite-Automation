@@ -9,7 +9,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from webapp.settings import Settings
 
-
 PUBLIC_PATHS = {"/login"}
 
 
