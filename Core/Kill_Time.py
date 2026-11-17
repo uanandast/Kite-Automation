@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pyotp
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -153,12 +153,17 @@ def get_request_token():
                 otp_input = wait.until(EC.element_to_be_clickable((By.ID, "userid")))
                 otp_input.clear()
                 otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
-                driver.find_element(By.XPATH, "//button[@type='submit']").click()
+                click_with_retry((By.XPATH, "//button[@type='submit']"), "TOTP submit")
+                WebDriverWait(
+                    driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS
+                ).until(lambda current: "console.zerodha.com/dashboard" in current.current_url)
                 break
-            except Exception as error:
+            except (StaleElementReferenceException, TimeoutException) as error:
                 if attempt == 3:
                     raise
-                print(f"Retrying TOTP ({attempt}/3): {error}")
+                if "console.zerodha.com/dashboard" in driver.current_url:
+                    break
+                print(f"Kite refreshed during TOTP; retrying ({attempt}/3): {error}")
                 time.sleep(0.5)
 
         wait.until(lambda current: "console.zerodha.com/dashboard" in current.current_url)
