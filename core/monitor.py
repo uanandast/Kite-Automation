@@ -83,10 +83,11 @@ def beep():
     os.system('say "order updated"')
 
 
-def ask_and_sleep_mac():
+def ask_and_sleep_mac(skip_system_close=False):
     try:
-        print("Locking Account...")
-        system_close()
+        if not skip_system_close:
+            print("Locking Account...")
+            system_close()
         send_telegram(
             "🚨 Max loss threshold breached. Account locked and Mac will sleep. Review the situation calmly before resuming trading."
         )
@@ -1204,14 +1205,17 @@ def Exiting_closing_account(positions):
     # global is_exiting
     # is_exiting = True
     try:
-        print("🚨 Max loss threshold breached. Exiting all positions...")
+        print("🚨 Max loss threshold breached. Starting account closure and exiting positions...")
+
+        # Start browser launch & login in background immediately so it runs parallel with REST API order placement
+        system_close()
 
         exit_all_positions_short_then_long(
             positions,
             allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
             reason="threshold",
         )
-        ask_and_sleep_mac()
+        ask_and_sleep_mac(skip_system_close=True)
 
     except Exception as e:
         print(f"❌ Error in P&L monitoring: {e}")

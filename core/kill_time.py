@@ -112,10 +112,18 @@ def get_request_token(driver=None):
             except Exception as error:
                 print(f"Could not save debug screenshot: {error}")
 
-        def click_with_retry(locator, name, attempts=3, timeout=DEFAULT_WAIT_SECONDS):
+        def click_with_retry(
+            locator,
+            name,
+            attempts=3,
+            timeout=DEFAULT_WAIT_SECONDS,
+            check_condition=None,
+        ):
             last_error = None
             action_started_at = time.perf_counter()
             for attempt in range(1, attempts + 1):
+                if check_condition and check_condition(driver):
+                    return None
                 try:
                     element = WebDriverWait(driver, timeout, poll_frequency=FAST_POLL_SECONDS).until(
                         EC.element_to_be_clickable(locator)
@@ -129,6 +137,8 @@ def get_request_token(driver=None):
                     return element
                 except Exception as error:
                     last_error = error
+                    if check_condition and check_condition(driver):
+                        return None
                     log_event(
                         f"{name} click attempt {attempt} failed: {error}", action_started_at
                     )
@@ -165,7 +175,7 @@ def get_request_token(driver=None):
             last_err = None
             for locator in candidate_locators:
                 try:
-                    btn = WebDriverWait(driver, 4, poll_frequency=FAST_POLL_SECONDS).until(
+                    btn = WebDriverWait(driver, 2, poll_frequency=FAST_POLL_SECONDS).until(
                         EC.element_to_be_clickable(locator)
                     )
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
@@ -217,13 +227,14 @@ def get_request_token(driver=None):
             segment_started_at = time.perf_counter()
             if not segment_is_enabled(segment_id):
                 log_event(f"{segment_id} is already OFF; skipping.", segment_started_at)
-                return
+                return False
             label = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f"label[for='{segment_id}']")))
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", label
             )
             wait.until(lambda _: segment_is_enabled(segment_id) in (False, None))
             log_event(f"{segment_id} is now OFF.", segment_started_at)
+            return True
 
         login_started_at = time.perf_counter()
         log_event("Opening Zerodha Console login page.")
@@ -241,8 +252,15 @@ def get_request_token(driver=None):
 
         totp_started_at = time.perf_counter()
         log_event("Starting TOTP verification.")
+        is_console_url = lambda current: (
+            "console.zerodha.com" in current.current_url
+            and "kite.zerodha.com" not in current.current_url
+        )
+
         for attempt in range(1, 4):
             try:
+                if is_console_url(driver):
+                    break
                 # The 2FA screen input on Kite is number/otp, not userid.
                 otp_input = wait.until(
                     EC.element_to_be_clickable(
@@ -254,50 +272,72 @@ def get_request_token(driver=None):
                 )
                 otp_input.clear()
                 otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
-                click_with_retry((By.XPATH, "//button[@type='submit']"), "TOTP submit")
+
+                # Kite often auto-submits upon receiving 6 digits. Attempt click with short timeout,
+                # but don't hang or fail if already transitioning to Console.
+                click_with_retry(
+                    (By.XPATH, "//button[@type='submit']"),
+                    "TOTP submit",
+                    attempts=2,
+                    timeout=2,
+                    check_condition=is_console_url,
+                )
                 WebDriverWait(
                     driver, DEFAULT_WAIT_SECONDS, poll_frequency=FAST_POLL_SECONDS
-                ).until(
-                    lambda current: "console.zerodha.com" in current.current_url
-                    and "kite.zerodha.com" not in current.current_url
-                )
+                ).until(is_console_url)
                 log_event("TOTP accepted; signed in to Zerodha Console.", totp_started_at)
                 break
             except (StaleElementReferenceException, TimeoutException) as error:
-                if (
-                    "console.zerodha.com" in driver.current_url
-                    and "kite.zerodha.com" not in driver.current_url
-                ):
+                if is_console_url(driver):
                     break
                 if attempt == 3:
                     raise
                 print(f"Kite refreshed during TOTP; retrying ({attempt}/3): {error}")
-                time.sleep(0.5)
+                time.sleep(0.3)
 
-        wait.until(
-            lambda current: "console.zerodha.com" in current.current_url
-            and "kite.zerodha.com" not in current.current_url
-        )
+        wait.until(is_console_url)
         segment_page_started_at = time.perf_counter()
         log_event("Opening account segment-activation page.")
         driver.get("https://console.zerodha.com/account/segment-activation")
         wait.until(EC.presence_of_element_located((By.ID, "form_segment_manage")))
         log_event("Segment-activation page loaded.", segment_page_started_at)
+
+        disabled_count = 0
         for segment_id in SEGMENT_IDS:
             try:
-                disable_segment(segment_id)
+                if disable_segment(segment_id):
+                    disabled_count += 1
             except Exception as error:
                 print(f"Could not disable {segment_id}: {error}")
                 screenshot(f"{segment_id.lower()}_error")
+
+        if disabled_count == 0:
+            log_event("All segments are already OFF; closure complete.", segment_page_started_at)
+            success = True
+            return success
 
         continue_started_at = time.perf_counter()
         log_event("Submitting selected segment changes.")
         continue_button = click_with_retry(
             (By.XPATH, "//button[contains(@class, 'btn-blue') and contains(normalize-space(.), 'Continue')]"),
             "Continue",
+            attempts=2,
+            timeout=5,
+        )
+
+        modal_locator = (
+            By.XPATH,
+            (
+                "//*[contains(@class, 'modal') or contains(@class, 'dialog') or contains(@class, 'popup') or @role='dialog']"
+                "//button[contains(normalize-space(.), 'Confirm') or contains(normalize-space(.), 'Disable') or "
+                "contains(normalize-space(.), 'Continue') or contains(normalize-space(.), 'Proceed') or "
+                "contains(normalize-space(.), 'Yes') or contains(@class, 'btn-blue')]"
+            ),
         )
         try:
-            wait.until(EC.staleness_of(continue_button))
+            WebDriverWait(driver, 2.5, poll_frequency=FAST_POLL_SECONDS).until(
+                lambda d: EC.staleness_of(continue_button)(d) or d.find_elements(*modal_locator)
+            )
         except TimeoutException:
             print("Confirm modal opened in place; proceeding to confirmation.")
         log_event("Confirmation dialog ready.", continue_started_at)
@@ -306,7 +346,9 @@ def get_request_token(driver=None):
         log_event("Confirming account-segment closure.")
         confirm_button = click_confirm_button()
         try:
-            wait.until(EC.staleness_of(confirm_button))
+            WebDriverWait(driver, 3, poll_frequency=FAST_POLL_SECONDS).until(
+                EC.staleness_of(confirm_button)
+            )
         except TimeoutException:
             wait.until(lambda current: current.execute_script("return document.readyState") == "complete")
         success = True

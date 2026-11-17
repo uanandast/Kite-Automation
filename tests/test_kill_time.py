@@ -159,6 +159,78 @@ def test_get_request_token_success(monkeypatch):
     assert "✅ Account Closed Successfully" in mock_send.call_args[0][0]
 
 
+def test_get_request_token_all_segments_already_off(monkeypatch):
+    mock_driver = MagicMock()
+    mock_send = MagicMock()
+    monkeypatch.setattr("core.kill_time.send_telegram", mock_send)
+
+    current_urls = [
+        "https://console.zerodha.com/",
+        "https://kite.zerodha.com/connect/login",
+        "https://console.zerodha.com/dashboard",
+        "https://console.zerodha.com/account/segment-activation",
+    ]
+    url_index = [0]
+
+    def get_url():
+        idx = min(url_index[0], len(current_urls) - 1)
+        return current_urls[idx]
+
+    type(mock_driver).current_url = property(lambda self: get_url())
+
+    def advance_url(*args, **kwargs):
+        url_index[0] += 1
+
+    login_kite_btn = _make_mock_element()
+    login_kite_btn.click.side_effect = advance_url
+
+    userid_input = _make_mock_element()
+    password_input = _make_mock_element()
+    submit_btn = _make_mock_element()
+    submit_btn.click.side_effect = advance_url
+
+    otp_input = _make_mock_element()
+
+    def mock_find_element(by, value):
+        if by == By.ID and value == "userid":
+            return userid_input
+        if by == By.ID and value == "password":
+            return password_input
+        if by == By.XPATH and "Login with Kite" in value:
+            return login_kite_btn
+        if by == By.XPATH and value == "//button[@type='submit']":
+            return submit_btn
+        if "input" in value and "otp" in value:
+            return otp_input
+        return _make_mock_element()
+
+    def mock_find_elements(by, value):
+        if by == By.ID and value == "password":
+            if url_index[0] >= 2:
+                return []
+            return [password_input]
+        if by == By.ID and value in SEGMENT_IDS:
+            return [_make_mock_element()]
+        return [_make_mock_element()]
+
+    mock_driver.find_element.side_effect = mock_find_element
+    mock_driver.find_elements.side_effect = mock_find_elements
+
+    # All segments return False (already OFF)
+    def mock_execute_script(script, *args):
+        if "toggle.getAttribute" in script:
+            return False
+        return None
+
+    mock_driver.execute_script.side_effect = mock_execute_script
+
+    result = get_request_token(driver=mock_driver)
+
+    assert result is True
+    mock_send.assert_called_once()
+    assert "✅ Account Closed Successfully" in mock_send.call_args[0][0]
+
+
 def test_get_request_token_failure(monkeypatch):
     mock_driver = MagicMock()
     mock_send = MagicMock()
