@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Request Dashboard Access</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+    <main class="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-7 shadow-2xl">
+      <h1 class="text-xl font-semibold">Request dashboard access</h1>
+      {% if submitted %}
+      <p class="mt-4 rounded bg-emerald-950 px-3 py-3 text-sm text-emerald-200">Your request was sent. An administrator must approve your Entra email before you can sign in.</p>
+      <a href="/login" class="mt-5 inline-block text-sm text-emerald-400 hover:text-emerald-300">Return to sign in</a>
+      {% else %}
+      <p class="mt-1 text-sm text-slate-400">Access is granted only after administrator approval.</p>
+      {% if error %}<p class="mt-4 rounded bg-rose-950 px-3 py-2 text-sm text-rose-200">{{ error }}</p>{% endif %}
+      <form method="post" action="/request-access" class="mt-6 space-y-4">
+        <label class="block text-sm">Name<input name="name" value="{{ name }}" required class="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 outline-none focus:border-emerald-500" /></label>
+        <label class="block text-sm">Entra email<input name="email" type="email" value="{{ email }}" required class="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 outline-none focus:border-emerald-500" /></label>
+        <label class="block text-sm">Reason for access<textarea name="reason" required rows="4" class="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 outline-none focus:border-emerald-500"></textarea></label>
+        <button class="w-full rounded bg-emerald-600 px-3 py-2 font-medium hover:bg-emerald-500">Send request</button>
+      </form>
+      {% endif %}
+    </main>
+  </body>
+</html>

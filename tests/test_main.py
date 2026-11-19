@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -130,6 +131,42 @@ def test_indices_returns_available_and_selected_values(client):
     assert response.json() == {"available": ["nifty", "banknifty"], "selected": "nifty"}
 
 
+def test_access_request_sends_admin_notification(client, monkeypatch):
+    messages = []
+    monkeypatch.setattr("webapp.routes.send_telegram", messages.append)
+
+    response = client.post(
+        "/request-access",
+        data={
+            "name": "Analyst User",
+            "email": "analyst@example.com",
+            "reason": "Monitor the trading dashboard",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Your request was sent" in response.text
+    assert len(messages) == 1
+    assert "analyst@example.com" in messages[0]
+
+
+def test_entra_settings_parse_allowlist():
+    settings = Settings(
+        environment="production",
+        dashboard_username="",
+        dashboard_password="",
+        session_secret="a-secure-test-session-secret-that-is-long-enough",
+        entra_tenant_id="tenant-id",
+        entra_client_id="client-id",
+        entra_client_secret="client-secret",
+        entra_redirect_uri="https://uanandast.duckdns.org/auth/entra/callback",
+        entra_allowed_emails="Admin@example.com, analyst@example.com ",
+    )
+
+    assert settings.entra_enabled
+    assert settings.allowed_entra_emails == {"admin@example.com", "analyst@example.com"}
+
+
 def test_indices_returns_503_before_runtime_is_initialized():
     app = FastAPI()
     app.include_router(create_router(RuntimeState(), Jinja2Templates(directory="templates")))
@@ -253,7 +290,6 @@ def test_place_recommended_order_uses_server_legs_and_lot_quantity(client, state
 
 
 def test_sanitize_for_json_converts_nan_and_numpy_types():
-    import numpy as np
     from webapp.serializers import sanitize_for_json
 
     data = {

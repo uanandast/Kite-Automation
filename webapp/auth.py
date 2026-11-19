@@ -9,7 +9,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from webapp.settings import Settings
 
-PUBLIC_PATHS = {"/login"}
+PUBLIC_PATHS = {
+    "/login",
+    "/auth/entra/login",
+    "/auth/entra/callback",
+    "/request-access",
+}
 
 
 def _login_required_response(request: Request) -> Response:
@@ -25,11 +30,12 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app, settings: Settings):
         super().__init__(app)
-        self.enabled = bool(
+        self.legacy_enabled = bool(
             settings.dashboard_username
             and settings.dashboard_password
             and settings.session_secret
         )
+        self.entra_enabled = settings.entra_enabled
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -38,7 +44,15 @@ class DashboardAuthMiddleware(BaseHTTPMiddleware):
 
         # Local development remains usable until credentials are configured.
         # Production is validated at startup and can never reach this branch.
-        if not self.enabled:
+        if not (self.legacy_enabled or self.entra_enabled):
+            return await call_next(request)
+
+        if self.entra_enabled:
+            email = request.session.get("entra_user_email")
+            allowed = request.app.state.settings.allowed_entra_emails
+            if not isinstance(email, str) or email.lower() not in allowed:
+                request.session.clear()
+                return _login_required_response(request)
             return await call_next(request)
 
         username = request.session.get("dashboard_user")

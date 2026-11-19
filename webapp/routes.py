@@ -7,7 +7,9 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from core.send_notification import send_telegram
 from webapp.auth import credentials_are_valid
+from webapp.entra import complete_login, email_from_claims, start_login
 from webapp.formatters import (
     format_cancel_sl_message,
     format_exit_message,
@@ -30,11 +32,15 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
+        if request.app.state.settings.entra_enabled:
+            return RedirectResponse(url="/auth/entra/login", status_code=303)
         return templates.TemplateResponse(request=request, name="login.html")
 
     @router.post("/login", response_class=HTMLResponse)
     def login(request: Request, username: str = Form(), password: str = Form()):
         settings = request.app.state.settings
+        if settings.entra_enabled:
+            return RedirectResponse(url="/auth/entra/login", status_code=303)
         if not credentials_are_valid(settings, username, password):
             return templates.TemplateResponse(
                 request=request,
@@ -45,6 +51,76 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
         request.session.clear()
         request.session["dashboard_user"] = settings.dashboard_username
         return RedirectResponse(url="/", status_code=303)
+
+    @router.get("/auth/entra/login")
+    def entra_login(request: Request):
+        settings = request.app.state.settings
+        if not settings.entra_enabled:
+            raise HTTPException(status_code=404, detail="Entra ID is not configured")
+        flow = start_login(settings)
+        request.session["entra_auth_flow"] = flow
+        return RedirectResponse(url=flow["auth_uri"], status_code=303)
+
+    @router.get("/auth/entra/callback")
+    def entra_callback(request: Request):
+        settings = request.app.state.settings
+        flow = request.session.pop("entra_auth_flow", None)
+        if not settings.entra_enabled or not isinstance(flow, dict):
+            return RedirectResponse(url="/login", status_code=303)
+        result = complete_login(settings, flow, dict(request.query_params))
+        claims = result.get("id_token_claims")
+        if not isinstance(claims, dict):
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={"error": "Microsoft sign-in failed. Please try again."},
+                status_code=401,
+            )
+        email = email_from_claims(claims)
+        request.session.clear()
+        request.session["entra_request_email"] = email
+        request.session["entra_request_name"] = str(claims.get("name") or "").strip()
+        if email not in settings.allowed_entra_emails:
+            return RedirectResponse(url="/request-access", status_code=303)
+        request.session["entra_user_email"] = email
+        return RedirectResponse(url="/", status_code=303)
+
+    @router.get("/request-access", response_class=HTMLResponse)
+    def request_access_form(request: Request):
+        return templates.TemplateResponse(
+            request=request,
+            name="request_access.html",
+            context={
+                "email": request.session.get("entra_request_email", ""),
+                "name": request.session.get("entra_request_name", ""),
+            },
+        )
+
+    @router.post("/request-access", response_class=HTMLResponse)
+    def request_access(
+        request: Request,
+        name: str = Form(),
+        email: str = Form(),
+        reason: str = Form(),
+    ):
+        name, email, reason = name.strip(), email.strip().lower(), reason.strip()
+        if not name or not email or not reason:
+            return templates.TemplateResponse(
+                request=request,
+                name="request_access.html",
+                context={"error": "Name, email, and reason are required.", "name": name, "email": email},
+                status_code=400,
+            )
+        send_telegram(
+            "🔐 Dashboard access request\n"
+            f"Name: {name}\nEmail: {email}\nReason: {reason}\n\n"
+            "To approve, add this email to ENTRA_ALLOWED_EMAILS and restart the app."
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="request_access.html",
+            context={"submitted": True, "name": name, "email": email},
+        )
 
     @router.post("/logout")
     def logout(request: Request):
