@@ -378,6 +378,71 @@ def _place_market_entry(order_template, quantity):
     return order_ids
 
 
+def place_recommended_iron_condor(legs, quantity, exchange):
+    """Place a server-generated iron condor with protection established first.
+
+    The two long hedge orders are submitted before either short option.  If a
+    hedge cannot be placed, the function raises and does not submit any short
+    order, avoiding a newly-created naked short position.
+    """
+    if not isinstance(legs, dict):
+        raise TypeError("Recommendation legs are missing")
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Quantity must be a positive integer") from error
+    if quantity <= 0:
+        raise ValueError("Quantity must be a positive integer")
+
+    required_legs = ("hedge_pe", "hedge_ce", "short_pe", "short_ce")
+    symbols = {}
+    for name in required_legs:
+        leg = legs.get(name)
+        symbol = leg.get("instrument_token") if isinstance(leg, dict) else None
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError(f"Recommendation is missing {name}")
+        symbols[name] = symbol.strip()
+
+    exchange = str(exchange).upper()
+    if exchange not in ALLOWED_OPTION_EXCHANGES:
+        raise ValueError(f"Unsupported option exchange: {exchange}")
+
+    result = {
+        "quantity": quantity,
+        "exchange": exchange,
+        "hedges_placed": 0,
+        "shorts_placed": 0,
+        "orders": [],
+    }
+    for name in ("hedge_pe", "hedge_ce"):
+        order_ids = _place_market_entry(
+            {
+                "exchange": exchange,
+                "tradingsymbol": symbols[name],
+                "transaction_type": "BUY",
+                "product": "NRML",
+            },
+            quantity,
+        )
+        result["hedges_placed"] += 1
+        result["orders"].append({"leg": name, "side": "BUY", "order_ids": order_ids})
+
+    for name in ("short_pe", "short_ce"):
+        order_ids = _place_market_entry(
+            {
+                "exchange": exchange,
+                "tradingsymbol": symbols[name],
+                "transaction_type": "SELL",
+                "product": "NRML",
+            },
+            quantity,
+        )
+        result["shorts_placed"] += 1
+        result["orders"].append({"leg": name, "side": "SELL", "order_ids": order_ids})
+
+    return result
+
+
 def _open_option_positions_snapshot():
     positions = kite.positions()["net"]
     return [

@@ -23,7 +23,14 @@ class RuntimeState:
     operation_locks: dict[str, Lock] = field(
         default_factory=lambda: {
             key: Lock()
-            for key in ("exit", "stoploss", "cancel_sl", "shift", "selected_exit")
+            for key in (
+                "exit",
+                "stoploss",
+                "cancel_sl",
+                "shift",
+                "selected_exit",
+                "recommended_entry",
+            )
         }
     )
     operations_in_progress: set[str] = field(default_factory=set)

@@ -1348,6 +1348,44 @@ function getGlobalNewQtyIfEnabled() {
     return newQty;
 }
 
+async function placeRecommendedOrder() {
+    const button = document.getElementById('place-recommended-order-btn');
+    const qtyInput = document.getElementById('qty-input');
+    if (!button || !qtyInput || button.disabled) return;
+
+    const quantity = Number.parseInt(qtyInput.value, 10);
+    const lotSize = getLotQtyForIndex();
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity % lotSize !== 0) {
+        showToast('Error', `Qty must be a multiple of ${lotSize}`, 'error', 3000);
+        return;
+    }
+    const confirmed = window.confirm(
+        `Place the current ${currentSelectedIndex.toUpperCase()} recommendation for ${quantity} units?\n\n` +
+        'The two hedge legs will be bought first. The two short legs will be sold only after that.'
+    );
+    if (!confirmed) return;
+
+    button.disabled = true;
+    try {
+        const response = await fetch('/place_recommended_order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || payload.message || 'Recommended order failed');
+        showToast('Complete', payload.message || 'Recommended order placed', 'success', 4500);
+        await fetchOpenOptionPositions();
+        await fetchOptionData();
+        await fetchPnl();
+    } catch (error) {
+        console.error('Error placing recommended order:', error);
+        showToast('Error', error.message || 'Recommended order failed', 'error', 4000);
+    } finally {
+        button.disabled = false;
+    }
+}
+
 async function exitSelectedLegs() {
     const nearBtn = document.getElementById('shift-near-btn');
     const awayBtn = document.getElementById('shift-away-btn');
@@ -1549,6 +1587,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const shiftExitSelectedButton = document.getElementById('shift-exit-selected-btn');
     if (shiftExitSelectedButton) {
         shiftExitSelectedButton.addEventListener('click', exitSelectedLegs);
+    }
+    const placeRecommendedButton = document.getElementById('place-recommended-order-btn');
+    if (placeRecommendedButton) {
+        placeRecommendedButton.addEventListener('click', placeRecommendedOrder);
     }
     const useQtyCheckbox = document.getElementById('shift-use-qty');
     const qtyInput = document.getElementById('qty-input');

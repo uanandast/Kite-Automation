@@ -21,6 +21,7 @@ class FakeMonitor:
         self.kite = SimpleNamespace(positions=lambda: {"net": [{"tradingsymbol": "NIFTY"}]})
         self.shift_calls = []
         self.exit_calls = []
+        self.recommended_order_calls = []
 
     def get_open_option_positions(self):
         return [{"tradingsymbol": "NIFTY24OCT25000CE"}]
@@ -32,6 +33,10 @@ class FakeMonitor:
     def exit_selected_legs(self, legs):
         self.exit_calls.append(legs)
         return {"requested": len(legs), "succeeded": len(legs), "failed": 0}
+
+    def place_recommended_iron_condor(self, legs, quantity, exchange):
+        self.recommended_order_calls.append((legs, quantity, exchange))
+        return {"hedges_placed": 2, "shorts_placed": 2, "orders": []}
 
 
 @pytest.fixture
@@ -207,6 +212,26 @@ def test_exit_selected_legs_rejects_invalid_quantity_and_calls_monitor(client, s
     assert response.status_code == 200
     assert response.json()["message"] == "Exited 1/1 selected legs"
     assert state.monitor_module.exit_calls == [[{"tradingsymbol": "NIFTY24OCT25000CE"}]]
+
+
+def test_place_recommended_order_uses_server_legs_and_lot_quantity(client, state):
+    state.latest_iron_condor_data["legs"] = {
+        "hedge_pe": {"instrument_token": "NIFTY24OCT24000PE"},
+        "hedge_ce": {"instrument_token": "NIFTY24OCT26000CE"},
+        "short_pe": {"instrument_token": "NIFTY24OCT24500PE"},
+        "short_ce": {"instrument_token": "NIFTY24OCT25500CE"},
+    }
+
+    invalid = client.post("/place_recommended_order", json={"quantity": 66})
+    response = client.post("/place_recommended_order", json={"quantity": 65})
+
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "Quantity must be a multiple of 65 for NIFTY"
+    assert response.status_code == 200
+    assert response.json()["message"] == "Bought 2 hedge legs, then sold 2 short legs"
+    assert state.monitor_module.recommended_order_calls == [
+        (state.latest_iron_condor_data["legs"], 65, "NFO")
+    ]
 
 
 def test_sanitize_for_json_converts_nan_and_numpy_types():

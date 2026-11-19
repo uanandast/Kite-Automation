@@ -15,7 +15,12 @@ from webapp.formatters import (
     format_shift_message,
     format_stoploss_message,
 )
-from webapp.schemas import ExitLegsRequest, IndexRequest, ShiftRequest
+from webapp.schemas import (
+    ExitLegsRequest,
+    IndexRequest,
+    RecommendedOrderRequest,
+    ShiftRequest,
+)
 from webapp.serializers import sanitize_for_json
 from webapp.state import RuntimeState
 
@@ -263,5 +268,51 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
             ) from error
         finally:
             state.finish_operation("selected_exit")
+
+    @router.post("/place_recommended_order")
+    def place_recommended_order(payload: RecommendedOrderRequest):
+        """Place the recommendation held by the server, never client-supplied legs."""
+        reserve("recommended_entry", "Recommended order placement is already in progress")
+        try:
+            legs = state.latest_iron_condor_data.get("legs")
+            if not isinstance(legs, dict):
+                raise HTTPException(status_code=409, detail="No current recommendation available")
+
+            selected_index = (
+                state.get_selected_index() if state.get_selected_index else "nifty"
+            ).lower()
+            lot_sizes = {"nifty": 65, "banknifty": 30, "sensex": 20}
+            lot_size = lot_sizes.get(selected_index)
+            if lot_size is None:
+                raise HTTPException(status_code=400, detail="Unsupported index for order placement")
+            if payload.quantity % lot_size:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Quantity must be a multiple of {lot_size} for "
+                        f"{selected_index.upper()}"
+                    ),
+                )
+
+            exchange = "BFO" if selected_index == "sensex" else "NFO"
+            result = monitor_or_503().place_recommended_iron_condor(
+                legs, payload.quantity, exchange
+            )
+            return {
+                "message": (
+                    f"Bought {result['hedges_placed']} hedge legs, then sold "
+                    f"{result['shorts_placed']} short legs"
+                ),
+                "details": result,
+            }
+        except HTTPException:
+            raise
+        except Exception as error:
+            print(f"❌ Error placing recommended order: {error!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Recommended order failed: {error!s}"
+            ) from error
+        finally:
+            state.finish_operation("recommended_entry")
 
     return router
