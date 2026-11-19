@@ -14,6 +14,7 @@ PUBLIC_PATHS = {
     "/auth/entra/login",
     "/auth/entra/callback",
     "/request-access",
+    "/favicon.ico",
 }
 
 

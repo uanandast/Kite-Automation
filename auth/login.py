@@ -15,10 +15,44 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
-from cred._base import ACCESS_TOKEN_PATH, kite_credentials
+from cred._base import ACCESS_TOKEN_PATH, PROJECT_ROOT, kite_credentials
 
 WAIT_SECONDS = 20
 STALE_RETRIES = 3
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+
+def _extract_page_errors(driver) -> str:
+    """Extract visible error messages or alerts from the page."""
+    error_texts = []
+    selectors = [
+        ".error", ".alert", ".danger", ".message",
+        "p.error", "div.error", "span.error",
+        "[role='alert']", ".form-error",
+    ]
+    for sel in selectors:
+        try:
+            for el in driver.find_elements(By.CSS_SELECTOR, sel):
+                if el.is_displayed():
+                    text = el.text.strip()
+                    if text and text not in error_texts:
+                        error_texts.append(text)
+        except Exception:
+            pass
+    return " | ".join(error_texts)
+
+
+def _save_debug_screenshot(driver, prefix: str = "login_error") -> str | None:
+    """Save screenshot on failure to assist diagnosis."""
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        screenshot_path = LOGS_DIR / f"{prefix}_{int(time.time())}.png"
+        driver.save_screenshot(str(screenshot_path))
+        print(f"📸 Debug screenshot saved to: {screenshot_path}")
+        return str(screenshot_path)
+    except Exception as err:
+        print(f"⚠️ Could not capture debug screenshot: {err}")
+        return None
 
 
 def _retry_stale(action, description: str):
@@ -72,6 +106,15 @@ def _create_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--remote-debugging-port=0")
 
+    # Anti-bot detection flags to prevent headless challenge blocking
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    )
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
     # Critical: always isolate profile to prevent conflict with any active browser instance
     profile_dir = tempfile.mkdtemp(prefix="kite-login-chrome-")
     options.add_argument(f"--user-data-dir={profile_dir}")
@@ -116,8 +159,20 @@ def get_request_token():
             "https://kite.zerodha.com/connect/login?v=3"
             f"&api_key={kite_credentials.api_key}"
         )
+        print(f"🌐 Opening Kite login: {login_url}")
         driver.get(login_url)
         wait = WebDriverWait(driver, WAIT_SECONDS)
+
+        # Check for immediate redirect (if session was already active)
+        initial_token = _request_token_from_url(driver.current_url)
+        if initial_token:
+            print("✅ Already authenticated; request token retrieved.")
+            return initial_token
+
+        # Check for initial page errors (e.g. invalid API key)
+        init_err = _extract_page_errors(driver)
+        if init_err:
+            print(f"⚠️ Page alert on load: {init_err}")
 
         def submit_credentials():
             username = wait.until(EC.element_to_be_clickable((By.ID, "userid")))
@@ -132,10 +187,30 @@ def get_request_token():
             ).click()
 
         _retry_stale(submit_credentials, "credentials")
+        print("🔑 Credentials submitted; checking response...")
+
+        # Small pause for response/redirect
+        time.sleep(1)
+
+        # Check if already redirected after credential submit
+        token_after_creds = _request_token_from_url(driver.current_url)
+        if token_after_creds:
+            print("✅ Request token retrieved immediately.")
+            return token_after_creds
+
+        # Check if Kite rejected the credentials (invalid username/password)
+        creds_err = _extract_page_errors(driver)
+        if creds_err:
+            print(f"❌ Kite rejected credentials: {creds_err}")
+            _save_debug_screenshot(driver, "credentials_error")
+            return None
+
+        totp_xpath = (
+            "//input[@type='number' or @id='otp' or @type='text' "
+            "or contains(@placeholder, 'OTP') or contains(@placeholder, 'TOTP')]"
+        )
 
         for attempt in range(1, STALE_RETRIES + 1):
-            # A stale exception from the submit button can occur after the
-            # click was accepted. Do not submit a second TOTP in that case.
             request_token = _request_token_from_url(driver.current_url)
             if request_token:
                 print("✅ Request token retrieved.")
@@ -143,13 +218,21 @@ def get_request_token():
 
             try:
                 otp_input = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//input[@type='number']"))
+                    EC.element_to_be_clickable((By.XPATH, totp_xpath))
                 )
                 otp_input.clear()
-                otp_input.send_keys(pyotp.TOTP(kite_credentials.totp_secret).now())
-                wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[@type='submit']"))
-                ).click()
+                totp_val = pyotp.TOTP(kite_credentials.totp_secret).now()
+                otp_input.send_keys(totp_val)
+                print("✅ TOTP entered; submitting...")
+
+                # Kite often auto-submits on 6 digits; attempt button click if present
+                time.sleep(0.5)
+                try:
+                    submit_btn = driver.find_elements(By.XPATH, "//button[@type='submit']")
+                    if submit_btn and submit_btn[0].is_displayed() and submit_btn[0].is_enabled():
+                        submit_btn[0].click()
+                except Exception:
+                    pass
                 break
             except StaleElementReferenceException:
                 if attempt == STALE_RETRIES:
@@ -171,7 +254,11 @@ def get_request_token():
                 lambda current_driver: _request_token_from_url(current_driver.current_url)
             )
         except TimeoutException:
-            print("❌ Timed out waiting for Kite to return a request token.")
+            totp_err = _extract_page_errors(driver)
+            print(f"❌ Timed out waiting for Kite redirect. Current URL: {driver.current_url}")
+            if totp_err:
+                print(f"❌ Detected page alert: {totp_err}")
+            _save_debug_screenshot(driver, "post_totp_timeout")
             return None
 
         if request_token:
@@ -182,7 +269,16 @@ def get_request_token():
         return request_token
 
     except Exception as e:
-        print(f"❌ Error during login: {e}")
+        print(f"❌ Error during login: {type(e).__name__}: {e}")
+        try:
+            print(f"ℹ️ Page URL when error occurred: {driver.current_url}")
+            print(f"ℹ️ Page Title: {driver.title}")
+            err_msg = _extract_page_errors(driver)
+            if err_msg:
+                print(f"ℹ️ Visible Page Alert: {err_msg}")
+            _save_debug_screenshot(driver, "login_exception")
+        except Exception:
+            pass
         return None
 
     finally:
