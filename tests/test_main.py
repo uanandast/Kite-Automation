@@ -167,6 +167,29 @@ def test_entra_settings_parse_allowlist():
     assert settings.allowed_entra_emails == {"admin@example.com", "analyst@example.com"}
 
 
+def test_login_page_shows_microsoft_sso_button_when_entra_is_enabled(state):
+    settings = Settings(
+        environment="local",
+        dashboard_username="",
+        dashboard_password="",
+        session_secret="a-secure-test-session-secret-that-is-long-enough",
+        entra_tenant_id="tenant-id",
+        entra_client_id="client-id",
+        entra_client_secret="client-secret",
+        entra_redirect_uri="https://example.com/auth/entra/callback",
+    )
+    app = FastAPI()
+    app.state.settings = settings
+    app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
+    app.include_router(create_router(state, Jinja2Templates(directory="templates")))
+
+    response = TestClient(app).get("/login")
+
+    assert response.status_code == 200
+    assert "Continue with Microsoft" in response.text
+    assert 'href="/auth/entra/login"' in response.text
+
+
 def test_indices_returns_503_before_runtime_is_initialized():
     app = FastAPI()
     app.include_router(create_router(RuntimeState(), Jinja2Templates(directory="templates")))

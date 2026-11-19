@@ -32,9 +32,11 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
 
     @router.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
-        if request.app.state.settings.entra_enabled:
-            return RedirectResponse(url="/auth/entra/login", status_code=303)
-        return templates.TemplateResponse(request=request, name="login.html")
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"entra_enabled": request.app.state.settings.entra_enabled},
+        )
 
     @router.post("/login", response_class=HTMLResponse)
     def login(request: Request, username: str = Form(), password: str = Form()):
@@ -45,7 +47,10 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"error": "Invalid username or password."},
+                context={
+                    "error": "Invalid username or password.",
+                    "entra_enabled": settings.entra_enabled,
+                },
                 status_code=401,
             )
         request.session.clear()
@@ -73,7 +78,10 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"error": "Microsoft sign-in failed. Please try again."},
+                context={
+                    "error": "Microsoft sign-in failed. Please try again.",
+                    "entra_enabled": settings.entra_enabled,
+                },
                 status_code=401,
             )
         email = email_from_claims(claims)
