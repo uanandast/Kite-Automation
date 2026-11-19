@@ -1,6 +1,7 @@
 """Kite runtime initialization and long-running background workers."""
 
 import importlib
+import math
 import os
 import time
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from threading import Thread
 from core.kite_connection import KiteConnection
 from core.send_notification import send_telegram
 from core.shared_resources import get_monitoring_state, set_monitoring_state
+from webapp.serializers import sanitize_for_json
 from webapp.settings import Settings
 from webapp.state import RuntimeState
 
@@ -78,17 +80,23 @@ class TradingRuntime:
                         spot_price,
                         atm_strike,
                     ) = values
-                    self.state.latest_iron_condor_data = {
-                        "legs": result,
-                        "net_delta": round(net_delta, 4) if net_delta is not None else None,
-                        "chain": options_data,
-                        "strangle_credit": strangle_credit,
-                        "future_price": future_price,
-                        "skew": skew,
-                        "delta": delta,
-                        "spot_price": spot_price,
-                        "atm_strike": atm_strike,
-                    }
+                    safe_net_delta = None
+                    if net_delta is not None and not (math.isnan(net_delta) or math.isinf(net_delta)):
+                        safe_net_delta = round(float(net_delta), 4)
+
+                    self.state.latest_iron_condor_data = sanitize_for_json(
+                        {
+                            "legs": result,
+                            "net_delta": safe_net_delta,
+                            "chain": options_data,
+                            "strangle_credit": strangle_credit,
+                            "future_price": future_price,
+                            "skew": skew,
+                            "delta": delta,
+                            "spot_price": spot_price,
+                            "atm_strike": atm_strike,
+                        }
+                    )
                     last_values = values
                 time.sleep(0.2)
             except Exception as error:

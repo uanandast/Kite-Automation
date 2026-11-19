@@ -16,6 +16,7 @@ from webapp.formatters import (
     format_stoploss_message,
 )
 from webapp.schemas import ExitLegsRequest, IndexRequest, ShiftRequest
+from webapp.serializers import sanitize_for_json
 from webapp.state import RuntimeState
 
 
@@ -97,7 +98,7 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
                 else "nifty",
             }
         )
-        return data
+        return sanitize_for_json(data)
 
     @router.get("/indices")
     def indices():
@@ -135,18 +136,20 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
     def pnl():
         try:
             monitor = monitor_or_503()
-            return {
-                "net_pnl": monitor.pnl_total or 0.0,
-                "straddle_price": state.latest_iron_condor_data.get(
-                    "strangle_credit", 0.0
-                )
-                or 0.0,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "Current_pos_credit": monitor.Current_pos_credit or 0.0,
-                "margin": state.margin,
-                "available_margin": getattr(monitor, "available_margin", 0.0),
-                "nifty_value": state.latest_iron_condor_data.get("spot_price", 0.0),
-            }
+            return sanitize_for_json(
+                {
+                    "net_pnl": monitor.pnl_total or 0.0,
+                    "straddle_price": state.latest_iron_condor_data.get(
+                        "strangle_credit", 0.0
+                    )
+                    or 0.0,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "Current_pos_credit": monitor.Current_pos_credit or 0.0,
+                    "margin": state.margin,
+                    "available_margin": getattr(monitor, "available_margin", 0.0),
+                    "nifty_value": state.latest_iron_condor_data.get("spot_price", 0.0),
+                }
+            )
         except HTTPException:
             raise
         except Exception as error:
@@ -205,7 +208,9 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
     @router.get("/open_option_positions")
     def open_option_positions():
         try:
-            return {"positions": monitor_or_503().get_open_option_positions()}
+            return sanitize_for_json(
+                {"positions": monitor_or_503().get_open_option_positions()}
+            )
         except HTTPException:
             raise
         except Exception as error:

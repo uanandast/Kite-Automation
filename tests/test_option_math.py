@@ -69,6 +69,27 @@ def test_bs_delta():
     assert abs((call_delta - put_delta) - 1.0) < 1e-2
 
 
+def test_bs_delta_handles_nan_and_invalid_inputs():
+    S = 24000.0
+    # OTM put: S > K
+    assert bs_delta(S, 23000.0, 10 / 365.0, 0.08, np.nan, "put") == 0.0
+    # ITM put: S < K
+    assert bs_delta(S, 25000.0, 10 / 365.0, 0.08, np.nan, "put") == -1.0
+    # ATM put: S == K
+    assert bs_delta(S, S, 10 / 365.0, 0.08, np.nan, "put") == -0.5
+    # OTM call: S < K
+    assert bs_delta(S, 25000.0, 10 / 365.0, 0.08, np.nan, "call") == 0.0
+    # ITM call: S > K
+    assert bs_delta(S, 23000.0, 10 / 365.0, 0.08, np.nan, "call") == 1.0
+    # ATM call: S == K
+    assert bs_delta(S, S, 10 / 365.0, 0.08, np.nan, "call") == 0.5
+    # Negative / zero sigma
+    assert bs_delta(S, 23000.0, 10 / 365.0, 0.08, 0.0, "put") == 0.0
+    assert bs_delta(S, 23000.0, 10 / 365.0, 0.08, -0.1, "put") == 0.0
+    # Expired / zero T
+    assert bs_delta(S, 23000.0, 0.0, 0.08, 0.15, "put") == 0.0
+
+
 def test_vectorized_iv_and_delta():
     S = 24200.0
     future = 24220.0

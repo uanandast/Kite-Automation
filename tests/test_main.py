@@ -207,3 +207,71 @@ def test_exit_selected_legs_rejects_invalid_quantity_and_calls_monitor(client, s
     assert response.status_code == 200
     assert response.json()["message"] == "Exited 1/1 selected legs"
     assert state.monitor_module.exit_calls == [[{"tradingsymbol": "NIFTY24OCT25000CE"}]]
+
+
+def test_sanitize_for_json_converts_nan_and_numpy_types():
+    import numpy as np
+    from webapp.serializers import sanitize_for_json
+
+    data = {
+        "nan_val": float("nan"),
+        "inf_val": float("inf"),
+        "np_nan": np.float64(np.nan),
+        "np_float": np.float64(12.34),
+        "np_int": np.int64(42),
+        "np_bool": np.bool_(True),
+        "nested": {
+            "legs": {
+                "hedge_pe": {
+                    "delta": np.float64(np.nan),
+                    "ltp": 0.0,
+                }
+            },
+            "chain": [
+                {"delta": np.float64(np.nan), "iv": 0.25},
+                {"delta": 0.5, "iv": float("inf")},
+            ],
+        },
+    }
+
+    sanitized = sanitize_for_json(data)
+    assert sanitized["nan_val"] is None
+    assert sanitized["inf_val"] is None
+    assert sanitized["np_nan"] is None
+    assert sanitized["np_float"] == 12.34
+    assert isinstance(sanitized["np_float"], float)
+    assert sanitized["np_int"] == 42
+    assert isinstance(sanitized["np_int"], int)
+    assert sanitized["np_bool"] is True
+    assert sanitized["nested"]["legs"]["hedge_pe"]["delta"] is None
+    assert sanitized["nested"]["legs"]["hedge_pe"]["ltp"] == 0.0
+    assert sanitized["nested"]["chain"][0]["delta"] is None
+    assert sanitized["nested"]["chain"][0]["iv"] == 0.25
+    assert sanitized["nested"]["chain"][1]["iv"] is None
+
+
+def test_option_data_handles_nan_and_numpy_floats_without_error(client, state):
+    import numpy as np
+
+    state.latest_iron_condor_data = {
+        "legs": {
+            "hedge_pe": {
+                "instrument_token": "NIFTY24OCT23000PE",
+                "strike": 23000.0,
+                "type": "PE",
+                "ltp": 0.0,
+                "delta": np.float64(np.nan),
+            }
+        },
+        "net_delta": np.float64(np.nan),
+        "chain": [],
+        "spot_price": np.float64(24500.0),
+    }
+
+    response = client.get("/option_data")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["legs"]["hedge_pe"]["delta"] is None
+    assert body["legs"]["hedge_pe"]["ltp"] == 0.0
+    assert body["net_delta"] is None
+    assert body["spot_price"] == 24500.0

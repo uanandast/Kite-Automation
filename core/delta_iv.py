@@ -82,6 +82,10 @@ def _normalize_option_instrument(meta):
         symbol = str(row.get("tradingsymbol", "")).upper()
         if "BANKNIFTY" in symbol:
             row["name"] = "BANKNIFTY"
+        elif "FINNIFTY" in symbol:
+            row["name"] = "FINNIFTY"
+        elif "MIDCPNIFTY" in symbol:
+            row["name"] = "MIDCPNIFTY"
         elif "SENSEX" in symbol:
             row["name"] = "SENSEX"
         elif "NIFTY" in symbol:
@@ -125,11 +129,22 @@ def _configure_index_data(index_key):
 
     cfg = INDEX_CONFIG[normalized_index_key]
     instruments = kite.instruments(cfg["exchange"])
+    opt_sym = cfg["option_symbol"]
     filtered_options = [
         inst
         for inst in instruments
-        if cfg["option_symbol"] in inst["tradingsymbol"]
-        and inst["instrument_type"] in ("CE", "PE")
+        if inst.get("instrument_type") in ("CE", "PE")
+        and (
+            inst.get("name") == opt_sym
+            or (
+                inst.get("tradingsymbol", "").startswith(opt_sym)
+                and not any(
+                    inst.get("tradingsymbol", "").startswith(other_prefix)
+                    for other_prefix in ("FINNIFTY", "MIDCPNIFTY", "BANKNIFTY")
+                    if other_prefix != opt_sym
+                )
+            )
+        )
     ]
     if not filtered_options:
         raise RuntimeError(f"No options found for {cfg['label']}")
@@ -457,8 +472,13 @@ def select_iron_condor_from_data(
 
     distance_from_sell = 8
 
-    straddle_credit = strangle_credit
-    difference_in_strikes = abs(options_data[0]["strike"] - options_data[2]["strike"])
+    straddle_credit = strangle_credit or 0.0
+    difference_in_strikes = strike_step
+    if not difference_in_strikes or difference_in_strikes <= 0:
+        if len(options_data) > 2:
+            difference_in_strikes = abs(options_data[0]["strike"] - options_data[2]["strike"])
+        if not difference_in_strikes or difference_in_strikes <= 0:
+            difference_in_strikes = 50
 
     # Calculate target short strikes
     target_ce_strike = atm_strike + straddle_credit + difference_in_strikes
@@ -536,44 +556,62 @@ def select_iron_condor_from_data(
         print("❌ Could not find exact strikes for all positions")
         return {}, 0.0
 
+    chain_lookup = {
+        (item["strike"], item["type"]): item for item in options_data
+    }
     local_tz = dt.datetime.now().astimezone().tzinfo
 
     # Get the option data for all positions
     def get_option_data(token, strike, opt_type):
+        if (strike, opt_type) in chain_lookup:
+            cached = chain_lookup[(strike, opt_type)]
+            cached_ltp = cached.get("ltp", 0.0)
+            cached_delta = cached.get("delta", 0.0)
+            return {
+                "instrument_token": option_tokens[token]["tradingsymbol"],
+                "strike": strike,
+                "type": opt_type,
+                "ltp": float(cached_ltp) if cached_ltp is not None and not np.isnan(cached_ltp) else 0.0,
+                "delta": float(cached_delta) if cached_delta is not None and not np.isnan(cached_delta) else 0.0,
+            }
+
+        opt_price = float(live_data.get(token, 0.0) or 0.0)
+        if np.isnan(opt_price) or np.isinf(opt_price):
+            opt_price = 0.0
+
+        spot = float(live_data.get(spot_token, 0.0) or 0.0)
+        time_to_expiry = (
+            datetime.combine(
+                option_tokens[token]["expiry"], dt.time(15, 30), tzinfo=local_tz
+            )
+            - datetime.now(tz=local_tz)
+        ).total_seconds() / (365 * 24 * 60 * 60)
+
+        iv = implied_vol(
+            opt_price,
+            spot,
+            strike,
+            time_to_expiry,
+            0.08,
+            "call" if opt_type == "CE" else "put",
+        )
+        delta_val = bs_delta(
+            spot,
+            strike,
+            time_to_expiry,
+            0.08,
+            iv,
+            "call" if opt_type == "CE" else "put",
+        )
+        if delta_val is None or np.isnan(delta_val) or np.isinf(delta_val):
+            delta_val = 0.0
+
         return {
             "instrument_token": option_tokens[token]["tradingsymbol"],
             "strike": strike,
             "type": opt_type,
-            "ltp": live_data.get(token, 0),
-            "delta": bs_delta(
-                live_data[spot_token],
-                strike,
-                (
-                    datetime.combine(
-                        option_tokens[token]["expiry"], dt.time(15, 30), tzinfo=local_tz
-                    )
-                    - datetime.now(tz=local_tz)
-                ).total_seconds()
-                / (365 * 24 * 60 * 60),
-                0.08,
-                implied_vol(
-                    live_data.get(token, 0),
-                    live_data[spot_token],
-                    strike,
-                    (
-                        datetime.combine(
-                            option_tokens[token]["expiry"],
-                            dt.time(15, 30),
-                            tzinfo=local_tz,
-                        )
-                        - datetime.now(tz=local_tz)
-                    ).total_seconds()
-                    / (365 * 24 * 60 * 60),
-                    0.08,
-                    "call" if opt_type == "CE" else "put",
-                ),
-                "call" if opt_type == "CE" else "put",
-            ),
+            "ltp": opt_price,
+            "delta": float(delta_val),
         }
 
     short_ce_data = get_option_data(short_ce_token, short_ce_strike, "CE")
@@ -585,71 +623,9 @@ def select_iron_condor_from_data(
     net_ce_delta = float(short_ce_data["delta"]) - float(hedge_ce_data["delta"])
     net_pe_delta = float(short_pe_data["delta"]) - float(hedge_pe_data["delta"])
     net_delta = net_ce_delta + net_pe_delta
+    if np.isnan(net_delta) or np.isinf(net_delta):
+        net_delta = 0.0
 
-    # # Calculate margin and quantity using kite.order_margin
-    # try:
-    #     # Prepare orders for margin calculation
-    #     orders = [
-    #         {
-    #             "exchange": "NFO",
-    #             "tradingsymbol": short_ce_data['instrument_token'],
-    #             "transaction_type": "SELL",
-    #             "quantity": 1,
-    #             "product": "NRML",
-    #             "order_type": "MARKET"
-    #         },
-    #         {
-    #             "exchange": "NFO",
-    #             "tradingsymbol": short_pe_data['instrument_token'],
-    #             "transaction_type": "SELL",
-    #             "quantity": 1,
-    #             "product": "NRML",
-    #             "order_type": "MARKET"
-    #         },
-    #         {
-    #             "exchange": "NFO",
-    #             "tradingsymbol": hedge_ce_data['instrument_token'],
-    #             "transaction_type": "BUY",
-    #             "quantity": 1,
-    #             "product": "NRML",
-    #             "order_type": "MARKET"
-    #         },
-    #         {
-    #             "exchange": "NFO",
-    #             "tradingsymbol": hedge_pe_data['instrument_token'],
-    #             "transaction_type": "BUY",
-    #             "quantity": 1,
-    #             "product": "NRML",
-    #             "order_type": "MARKET"
-    #         }
-    #     ]
-
-    #     # Get margin required
-    #     margin_info = kite.order_margin(orders)
-    #     margin_required = margin_info['total']['total']
-
-    #     # Get available margin
-    #     available_margin = kite.margins()['equity']['available']['cash']
-
-    #     # Calculate maximum lots possible
-    #     max_lots = int(available_margin / margin_required)
-
-    #     # Calculate credit per lot
-    #     credit_per_lot = (short_ce_data['ltp'] + short_pe_data['ltp']) - (hedge_ce_data['ltp'] + hedge_pe_data['ltp'])
-
-    #     best_condor = {
-    #         'hedge_ce': hedge_ce_data,
-    #         'hedge_pe': hedge_pe_data,
-    #         'short_ce': short_ce_data,
-    #         'short_pe': short_pe_data,
-    #         'max_lots': max_lots,
-    #         'margin_per_lot': margin_required,
-    #         'credit_per_lot': credit_per_lot,
-    #         'total_credit': credit_per_lot * max_lots
-    #     }
-
-    # except Exception as e:
-    #     print(f"❌ Error calculating margin: {e}")
     best_condor = {
         "hedge_pe": hedge_pe_data,
         "hedge_ce": hedge_ce_data,
@@ -657,7 +633,7 @@ def select_iron_condor_from_data(
         "short_ce": short_ce_data,
     }
 
-    return best_condor, net_delta
+    return best_condor, float(net_delta)
 
 
 def min_strike_selection(spot):
@@ -799,11 +775,26 @@ def get_current_iron_condor(force=False):
             is_call_arr,
         )
 
-        for (tradingsymbol, strike, opt_type, opt_price, _), iv, delta_val in zip(
+        for (tradingsymbol, strike, opt_type, opt_price, item_t), iv, delta_val in zip(
             items_to_price, ivs, deltas
         ):
             if np.isnan(iv) or iv > 3:
                 continue
+
+            delta_float = float(delta_val)
+            if np.isnan(delta_float) or np.isinf(delta_float):
+                delta_float = float(
+                    bs_delta(
+                        future_price or spot_price,
+                        strike,
+                        item_t,
+                        r,
+                        iv,
+                        opt_type,
+                    )
+                )
+                if np.isnan(delta_float) or np.isinf(delta_float):
+                    delta_float = 0.0
 
             options_data.append(
                 {
@@ -812,7 +803,7 @@ def get_current_iron_condor(force=False):
                     "type": opt_type,
                     "ltp": float(opt_price),
                     "iv": float(iv),
-                    "delta": float(delta_val),
+                    "delta": delta_float,
                 }
             )
 
@@ -820,6 +811,30 @@ def get_current_iron_condor(force=False):
         options_data, strangle_credit, future_atm_strike
     )
     delta = get_delta_from_position(options_data, future_price)
+    if delta is None or np.isnan(delta) or np.isinf(delta):
+        delta = 0.0
+    else:
+        delta = float(delta)
+
+    if Skew is not None and (np.isnan(Skew) or np.isinf(Skew)):
+        Skew = None
+    elif Skew is not None:
+        Skew = float(Skew)
+
+    if future_price is not None and (np.isnan(future_price) or np.isinf(future_price)):
+        future_price = None
+    elif future_price is not None:
+        future_price = float(future_price)
+
+    if strangle_credit is not None and (np.isnan(strangle_credit) or np.isinf(strangle_credit)):
+        strangle_credit = None
+    elif strangle_credit is not None:
+        strangle_credit = float(strangle_credit)
+
+    if spot_price is not None and (np.isnan(spot_price) or np.isinf(spot_price)):
+        spot_price = None
+    elif spot_price is not None:
+        spot_price = float(spot_price)
 
     result_tuple = (
         result,

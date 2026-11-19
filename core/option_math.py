@@ -88,9 +88,41 @@ def implied_vol(opt_value, S, K, T, r, type_="call"):
 
 
 def bs_delta(S, K, T, r, sigma, option_type="call"):
-    d1 = (np.log(S / K) + (r + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
     opt_type = str(option_type).strip().lower()
-    return N(d1) if opt_type in ("call", "ce") else -N(-d1)
+    is_call = opt_type in ("call", "ce")
+
+    def _intrinsic_delta():
+        if S is None or K is None or np.isnan(S) or np.isnan(K):
+            return 0.0
+        if is_call:
+            return 1.0 if S > K else (0.5 if S == K else 0.0)
+        else:
+            return -1.0 if S < K else (-0.5 if S == K else 0.0)
+
+    if (
+        sigma is None
+        or np.isnan(sigma)
+        or sigma <= 0
+        or T is None
+        or np.isnan(T)
+        or T <= 0
+        or S is None
+        or np.isnan(S)
+        or S <= 0
+        or K is None
+        or np.isnan(K)
+        or K <= 0
+    ):
+        return _intrinsic_delta()
+
+    try:
+        d1 = (np.log(S / K) + (r + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
+        val = N(d1) if is_call else -N(-d1)
+        if np.isnan(val) or np.isinf(val):
+            return _intrinsic_delta()
+        return float(val)
+    except Exception:
+        return _intrinsic_delta()
 
 
 def vectorized_iv_and_delta(
