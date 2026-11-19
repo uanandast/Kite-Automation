@@ -79,15 +79,52 @@ def _create_driver():
         options.add_argument(f"--user-data-dir={profile_dir}")
         service = Service(chromedriver_path)
     else:
-        options.add_argument("--start-maximized")
-        service = Service(ChromeDriverManager().install())
+        mac_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+        for path in mac_paths:
+            if Path(path).is_file():
+                options.binary_location = path
+                break
+
+        options.page_load_strategy = "eager"
+        for argument in (
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-sync",
+            "--blink-settings=imagesEnabled=false",
+            "--window-size=1365,768",
+            "--remote-debugging-port=0",
+        ):
+            options.add_argument(argument)
+        profile_dir = tempfile.mkdtemp(prefix="kite-close-chrome-")
+        options.add_argument(f"--user-data-dir={profile_dir}")
+
+        if shutil.which("chromedriver"):
+            service = Service(shutil.which("chromedriver"))
+        else:
+            try:
+                service = Service(ChromeDriverManager().install())
+            except Exception:
+                service = None
 
     try:
-        return webdriver.Chrome(service=service, options=options), profile_dir
+        if service:
+            return webdriver.Chrome(service=service, options=options), profile_dir
+        return webdriver.Chrome(options=options), profile_dir
     except Exception:
-        if profile_dir:
-            shutil.rmtree(profile_dir, ignore_errors=True)
-        raise
+        try:
+            return webdriver.Chrome(options=options), profile_dir
+        except Exception:
+            if profile_dir:
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            raise
 
 
 def get_request_token(driver=None):

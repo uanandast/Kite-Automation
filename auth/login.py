@@ -38,31 +38,78 @@ def _request_token_from_url(url: str) -> str | None:
     return query.get("request_token", [None])[0]
 
 
-def get_request_token():
-    # Use the system Chromium/ChromeDriver supplied by Docker when available.
-    # webdriver-manager can download a driver that is incompatible with the
-    # Chromium version installed in the image.
+def _find_chrome_binary() -> str | None:
     chrome_bin = os.getenv("CHROME_BIN")
-    chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
-    chrome_profile_dir = None
+    if chrome_bin and Path(chrome_bin).is_file():
+        return chrome_bin
+
+    mac_paths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ]
+    for path in mac_paths:
+        if Path(path).is_file():
+            return path
+    return None
+
+
+def _create_driver():
     options = webdriver.ChromeOptions()
+    chrome_bin = _find_chrome_binary()
     if chrome_bin:
         options.binary_location = chrome_bin
+
+    # Headless mode ensures reliable background execution across Docker/AWS and macOS
+    is_headless = os.getenv("HEADLESS", "true").lower() not in ("0", "false", "no")
+    if is_headless:
         options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--remote-debugging-port=0")
-        chrome_profile_dir = tempfile.mkdtemp(prefix="kite-login-chrome-")
-        options.add_argument(f"--user-data-dir={chrome_profile_dir}")
     else:
         options.add_argument("--start-maximized")
 
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--remote-debugging-port=0")
+
+    # Critical: always isolate profile to prevent conflict with any active browser instance
+    profile_dir = tempfile.mkdtemp(prefix="kite-login-chrome-")
+    options.add_argument(f"--user-data-dir={profile_dir}")
+
+    chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
+    service = None
     if chromedriver_path and Path(chromedriver_path).is_file():
         service = Service(chromedriver_path)
+    elif shutil.which("chromedriver"):
+        service = Service(shutil.which("chromedriver"))
     else:
-        service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+        try:
+            service = Service(ChromeDriverManager().install())
+        except Exception:
+            service = None
+
+    try:
+        if service:
+            driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Chrome(options=options)
+    except Exception:
+        try:
+            driver = webdriver.Chrome(options=options)
+        except Exception:
+            if profile_dir:
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            raise
+
+    return driver, profile_dir
+
+
+def get_request_token():
+    try:
+        driver, chrome_profile_dir = _create_driver()
+    except Exception as e:
+        print(f"❌ Failed to initialize Chrome driver: {e}")
+        return None
 
     try:
         login_url = (
@@ -139,7 +186,10 @@ def get_request_token():
         return None
 
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
         if chrome_profile_dir:
             shutil.rmtree(chrome_profile_dir, ignore_errors=True)
 
