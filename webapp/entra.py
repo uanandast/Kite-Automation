@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from msal import ConfidentialClientApplication
+from msal import ConfidentialClientApplication, PublicClientApplication
 
 from webapp.settings import Settings
 
@@ -11,11 +11,17 @@ from webapp.settings import Settings
 SCOPES = ["email"]
 
 
-def create_client(settings: Settings) -> ConfidentialClientApplication:
-    return ConfidentialClientApplication(
+def create_client(settings: Settings) -> Any:
+    authority = f"https://login.microsoftonline.com/{settings.entra_tenant_id}"
+    if settings.entra_client_secret and not settings.entra_public_client:
+        return ConfidentialClientApplication(
+            client_id=settings.entra_client_id,
+            client_credential=settings.entra_client_secret,
+            authority=authority,
+        )
+    return PublicClientApplication(
         client_id=settings.entra_client_id,
-        client_credential=settings.entra_client_secret,
-        authority=f"https://login.microsoftonline.com/{settings.entra_tenant_id}",
+        authority=authority,
     )
 
 

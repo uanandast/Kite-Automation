@@ -75,11 +75,13 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
         result = complete_login(settings, flow, dict(request.query_params))
         claims = result.get("id_token_claims")
         if not isinstance(claims, dict):
+            error_desc = result.get("error_description") or result.get("error") or "Unknown error"
+            print(f"❌ Entra complete_login failed: {result}")
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
                 context={
-                    "error": "Microsoft sign-in failed. Please try again.",
+                    "error": f"Microsoft sign-in failed: {error_desc}",
                     "entra_enabled": settings.entra_enabled,
                 },
                 status_code=401,

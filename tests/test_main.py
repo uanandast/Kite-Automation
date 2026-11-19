@@ -167,6 +167,43 @@ def test_entra_settings_parse_allowlist():
     assert settings.allowed_entra_emails == {"admin@example.com", "analyst@example.com"}
 
 
+def test_entra_settings_public_client():
+    settings = Settings(
+        environment="production",
+        dashboard_username="",
+        dashboard_password="",
+        session_secret="a-secure-test-session-secret-that-is-long-enough",
+        entra_tenant_id="consumers",
+        entra_client_id="client-id",
+        entra_client_secret="",
+        entra_redirect_uri="https://uanandast.duckdns.org/auth/entra/callback",
+        entra_allowed_emails="user@example.com",
+        entra_public_client=True,
+    )
+    assert settings.entra_enabled
+
+    from msal import ConfidentialClientApplication, PublicClientApplication
+    from webapp.entra import create_client
+
+    client = create_client(settings)
+    assert isinstance(client, PublicClientApplication)
+
+    conf_settings = Settings(
+        environment="production",
+        dashboard_username="",
+        dashboard_password="",
+        session_secret="a-secure-test-session-secret-that-is-long-enough",
+        entra_tenant_id="consumers",
+        entra_client_id="client-id",
+        entra_client_secret="client-secret",
+        entra_redirect_uri="https://uanandast.duckdns.org/auth/entra/callback",
+        entra_allowed_emails="user@example.com",
+        entra_public_client=False,
+    )
+    conf_client = create_client(conf_settings)
+    assert isinstance(conf_client, ConfidentialClientApplication)
+
+
 def test_login_page_shows_microsoft_sso_button_when_entra_is_enabled(state):
     settings = Settings(
         environment="local",

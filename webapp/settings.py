@@ -18,6 +18,7 @@ class Settings:
     entra_client_secret: str = ""
     entra_redirect_uri: str = ""
     entra_allowed_emails: str = ""
+    entra_public_client: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -25,13 +26,14 @@ class Settings:
 
     @property
     def entra_enabled(self) -> bool:
+        has_credentials = bool(self.entra_client_secret or self.entra_public_client)
         return all(
             (
                 self.entra_tenant_id,
                 self.entra_client_id,
-                self.entra_client_secret,
                 self.entra_redirect_uri,
                 self.session_secret,
+                has_credentials,
             )
         )
 
@@ -76,6 +78,11 @@ def load_settings() -> Settings:
         entra_client_secret=os.getenv("ENTRA_CLIENT_SECRET", ""),
         entra_redirect_uri=os.getenv("ENTRA_REDIRECT_URI", ""),
         entra_allowed_emails=os.getenv("ENTRA_ALLOWED_EMAILS", ""),
+        entra_public_client=(
+            os.getenv("ENTRA_PUBLIC_CLIENT", "").strip().lower()
+            in ("true", "1", "yes")
+            or not os.getenv("ENTRA_CLIENT_SECRET", "").strip()
+        ),
     )
     settings.validate_dashboard_auth()
     return settings
