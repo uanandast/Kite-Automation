@@ -551,57 +551,38 @@ let pnlData = {
     straddleSeries: [],
 };
 
-// Add these functions for localStorage management
-function saveToLocalStorage() {
+function applyPnlHistory(samples) {
+    if (!Array.isArray(samples)) return;
+    const validSamples = samples
+        .map((sample) => [
+            Number(sample.timestamp),
+            Number(sample.net_pnl),
+            Number(sample.straddle_price),
+        ])
+        .filter(([timestamp, netPnl, straddlePrice]) =>
+            Number.isFinite(timestamp) && Number.isFinite(netPnl) && Number.isFinite(straddlePrice)
+        )
+        .slice(-MAX_DATA_POINTS);
+    pnlData = {
+        pnlSeries: validSamples.map(([timestamp, netPnl]) => [timestamp, netPnl]),
+        straddleSeries: validSamples.map(([timestamp, , straddlePrice]) => [timestamp, straddlePrice]),
+    };
+}
+
+async function loadPnlHistory() {
     try {
-        localStorage.setItem('pnlData_v2', JSON.stringify(pnlData));
+        const response = await fetch('/pnl/history');
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Could not load chart data');
+        applyPnlHistory(payload.samples);
+        updateChart();
     } catch (error) {
-        console.error('Error saving to localStorage:', error);
+        console.error('Error loading server chart data:', error);
     }
 }
 
-function loadFromLocalStorage() {
-    try {
-        const savedData = localStorage.getItem('pnlData_v2');
-        if (savedData) {
-            const parsed = JSON.parse(savedData);
-            if (Array.isArray(parsed.pnlSeries) && Array.isArray(parsed.straddleSeries)) {
-                
-                // Deduplicate and bucket to exact minutes to fix overlap bugs from old data
-                const minuteMapPnl = new Map();
-                parsed.pnlSeries.forEach(pt => {
-                    const tsm = Math.floor(pt[0] / 60000) * 60000;
-                    minuteMapPnl.set(tsm, pt[1]);
-                });
-                
-                const minuteMapStraddle = new Map();
-                parsed.straddleSeries.forEach(pt => {
-                    const tsm = Math.floor(pt[0] / 60000) * 60000;
-                    minuteMapStraddle.set(tsm, pt[1]);
-                });
-
-                const cleanPnl = Array.from(minuteMapPnl.entries()).sort((a,b) => a[0] - b[0]);
-                const cleanStraddle = Array.from(minuteMapStraddle.entries()).sort((a,b) => a[0] - b[0]);
-
-                return { pnlSeries: cleanPnl, straddleSeries: cleanStraddle };
-            }
-        }
-    } catch (error) {
-        console.error('Error loading from localStorage:', error);
-    }
-    return null;
-}
-
-// Modify initializeChart to use localStorage
 function initializeChart() {
-    const savedData = loadFromLocalStorage();
-    if (savedData) {
-        pnlData = savedData;
-    } else {
-        pnlData.pnlSeries = [];
-        pnlData.straddleSeries = [];
-    }
-
+    pnlData = { pnlSeries: [], straddleSeries: [] };
     renderPnlChart();
 }
 
@@ -661,7 +642,6 @@ async function fetchPnl() {
             pnlData.straddleSeries = pnlData.straddleSeries.slice(-MAX_DATA_POINTS);
         }
 
-        saveToLocalStorage();
         updatePnLDisplay(json, netPnl, displayStraddlePrice);
 
         if (!pendingChartUpdate) {
@@ -1038,7 +1018,6 @@ function renderPnlChart() {
 
 // Update the clear chart function to also clear localStorage
 function clearChartData() {
-    localStorage.removeItem('pnlData_v2');
     pnlData.pnlSeries = [];
     pnlData.straddleSeries = [];
     pnlChart.updateSeries([
@@ -1552,6 +1531,7 @@ async function handleIndexChange(event) {
         indexSelect.value = currentSelectedIndex;
         resetIndexScopedStraddleStats();
         applyIndexQtyRules(currentSelectedIndex, true);
+        await loadPnlHistory();
         showToast('Complete', payload.message || 'Index switched');
         fetchOptionData();
     } catch (error) {
@@ -1628,7 +1608,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeChart();
     setTimeout(() => { if (pnlChart) pnlChart.updateOptions({}); }, 150);
     fetchOptionData();
-    fetchPnl();
+    loadPnlHistory().finally(fetchPnl);
     fetchOpenOptionPositions();
     setInterval(fetchOptionData, POLLING_INTERVAL);
     setInterval(fetchPnl, POLLING_INTERVAL);

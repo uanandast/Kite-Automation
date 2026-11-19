@@ -1,5 +1,6 @@
 """Mutable application state shared by runtime workers and HTTP handlers."""
 
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
@@ -19,6 +20,8 @@ class RuntimeState:
     margin: float = 0
     previous_day_close: float = 0
     name: str = "Unknown"
+    pnl_history: dict[str, deque[dict[str, float | int]]] = field(default_factory=dict)
+    pnl_history_lock: Lock = field(default_factory=Lock)
     index_update_lock: Lock = field(default_factory=Lock)
     operation_locks: dict[str, Lock] = field(
         default_factory=lambda: {
@@ -45,3 +48,24 @@ class RuntimeState:
     def finish_operation(self, operation: str) -> None:
         with self.operation_locks[operation]:
             self.operations_in_progress.discard(operation)
+
+    def record_pnl_sample(
+        self, index: str, timestamp_ms: int, net_pnl: float, straddle_price: float
+    ) -> None:
+        """Keep a compact, current-process chart buffer for one index."""
+        index_key = index.strip().lower()
+        sample = {
+            "timestamp": timestamp_ms,
+            "net_pnl": net_pnl,
+            "straddle_price": straddle_price,
+        }
+        with self.pnl_history_lock:
+            samples = self.pnl_history.setdefault(index_key, deque(maxlen=3600))
+            if samples and samples[-1]["timestamp"] == timestamp_ms:
+                samples[-1] = sample
+            else:
+                samples.append(sample)
+
+    def get_pnl_history(self, index: str) -> list[dict[str, float | int]]:
+        with self.pnl_history_lock:
+            return list(self.pnl_history.get(index.strip().lower(), ()))

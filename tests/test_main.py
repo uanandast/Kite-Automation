@@ -170,6 +170,24 @@ def test_pnl_returns_monitor_and_market_values(client):
     assert body["timestamp"].endswith("+00:00")
 
 
+def test_pnl_history_returns_current_server_session_samples(client, state):
+    state.record_pnl_sample("nifty", 1_700_000_000_000, 125.5, 80.0)
+
+    response = client.get("/pnl/history")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "index": "nifty",
+        "samples": [
+            {
+                "timestamp": 1_700_000_000_000,
+                "net_pnl": 125.5,
+                "straddle_price": 80.0,
+            }
+        ],
+    }
+
+
 def test_shift_legs_rejects_missing_or_zero_shift(client):
     assert client.post("/shift_legs", json={"legs": [], "shift": 1}).status_code == 400
     assert client.post("/shift_legs", json={"legs": ["NIFTY"], "shift": 0}).status_code == 400

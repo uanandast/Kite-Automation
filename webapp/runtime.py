@@ -46,6 +46,7 @@ class TradingRuntime:
     def start_workers(self) -> None:
         Thread(target=self._update_iron_condor_data, daemon=True).start()
         Thread(target=self._monitor_spreads, daemon=True).start()
+        Thread(target=self._capture_pnl_history, daemon=True).start()
 
     def _monitor_spreads(self) -> None:
         monitor_module = self.state.monitor_module
@@ -102,6 +103,27 @@ class TradingRuntime:
             except Exception as error:
                 print(f"Error in update_iron_condor_data: {error!s}")
                 time.sleep(2)
+
+    def _capture_pnl_history(self) -> None:
+        """Record one live chart point per minute; data resets when the app restarts."""
+        while True:
+            try:
+                monitor = self.state.monitor_module
+                selected_index = self.state.get_selected_index
+                if monitor is not None and selected_index is not None:
+                    net_pnl = float(monitor.pnl_total or 0.0)
+                    straddle_price = float(
+                        self.state.latest_iron_condor_data.get("strangle_credit", 0.0)
+                        or 0.0
+                    )
+                    if math.isfinite(net_pnl) and math.isfinite(straddle_price):
+                        timestamp_ms = int(time.time() * 1000) // 60_000 * 60_000
+                        self.state.record_pnl_sample(
+                            selected_index(), timestamp_ms, net_pnl, straddle_price
+                        )
+            except Exception as error:
+                print(f"Error recording P&L chart history: {error!s}")
+            time.sleep(1)
 
     @asynccontextmanager
     async def lifespan(self):

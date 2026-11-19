@@ -161,6 +161,13 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
             print(f"Error in pnl endpoint: {error!s}")
             raise HTTPException(status_code=500, detail=str(error)) from error
 
+    @router.get("/pnl/history")
+    def pnl_history():
+        selected_index = (
+            state.get_selected_index() if state.get_selected_index else "nifty"
+        )
+        return {"index": selected_index, "samples": state.get_pnl_history(selected_index)}
+
     @router.post("/manual_exit")
     def manual_exit():
         reserve("exit", "Manual exit is already in progress")

@@ -74,3 +74,13 @@ def test_lifespan_telegram_local_notification(monkeypatch):
     message = mock_send.call_args[0][0]
     assert "🚀 Trading bot started successfully on MacBook" in message
     assert "duckdns" not in message
+
+
+def test_runtime_chart_history_replaces_same_minute_sample():
+    state = RuntimeState()
+    state.record_pnl_sample("nifty", 1_700_000_000_000, 10.0, 100.0)
+    state.record_pnl_sample("nifty", 1_700_000_000_000, 12.0, 101.0)
+
+    assert state.get_pnl_history("NIFTY") == [
+        {"timestamp": 1_700_000_000_000, "net_pnl": 12.0, "straddle_price": 101.0}
+    ]
