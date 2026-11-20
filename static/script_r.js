@@ -1200,12 +1200,6 @@ function initializeAccountActions() {
 
         if (action === 'close_account') {
             showCloseAccountModal();
-        } else if (action === 'exit_all') {
-            const confirmed = window.confirm('Are you sure you want to exit all positions?');
-            if (confirmed) {
-                await triggerManualExit();
-            }
-            actionsSelect.value = '';
         }
     });
 }
