@@ -1170,6 +1170,12 @@ function initializeAccountActions() {
         modal.addEventListener('close', () => {
             if (actionsSelect) actionsSelect.value = '';
         });
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                modal.close();
+                if (actionsSelect) actionsSelect.value = '';
+            }
+        });
     }
 
     if (cancelBtn) {
@@ -1192,7 +1198,7 @@ function initializeAccountActions() {
         const action = event.target.value;
         if (!action) return;
 
-        if (action === 'close_account' || action === 'confirm_close_account') {
+        if (action === 'close_account') {
             showCloseAccountModal();
         } else if (action === 'exit_all') {
             const confirmed = window.confirm('Are you sure you want to exit all positions?');

@@ -26,7 +26,6 @@
           <select id="account-actions" class="rounded border border-rose-700/60 bg-slate-800 px-2 py-0.5 text-xs font-medium text-rose-300 outline-none">
             <option value="" selected disabled>Actions</option>
             <option value="close_account">Close All & Close Account</option>
-            <option value="confirm_close_account">⚠️ Confirm: Close All & Close Account</option>
             <option value="exit_all">Exit All Positions</option>
           </select>
         </div>
@@ -196,7 +195,7 @@
       </div>
     </div>
     <!-- Confirmation Modal Dialog for Close Account -->
-    <dialog id="close-account-modal" class="rounded-lg border border-slate-700 bg-slate-900 p-0 text-slate-200 shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm">
+    <dialog id="close-account-modal" class="m-auto rounded-lg border border-slate-700 bg-slate-900 p-0 text-slate-200 shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm">
       <div class="w-full max-w-md p-6">
         <div class="flex items-center gap-3 text-rose-500 mb-3">
           <svg class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -220,6 +219,6 @@
 
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
-    <script src="static/script_r.js?v=2"></script>
+    <script src="static/script_r.js?v=3"></script>
   </body>
 </html>
