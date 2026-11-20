@@ -1143,23 +1143,57 @@ async function triggerCloseAccount() {
     }
 }
 
+function showCloseAccountModal() {
+    const modal = document.getElementById('close-account-modal');
+    if (modal && typeof modal.showModal === 'function') {
+        modal.showModal();
+        return;
+    }
+    const confirmed = window.confirm(
+        '⚠️ Are you sure you want to close all positions and close/lock the account?'
+    );
+    if (confirmed) {
+        triggerCloseAccount();
+    } else {
+        const actionsSelect = document.getElementById('account-actions');
+        if (actionsSelect) actionsSelect.value = '';
+    }
+}
+
 function initializeAccountActions() {
     const actionsSelect = document.getElementById('account-actions');
+    const modal = document.getElementById('close-account-modal');
+    const confirmBtn = document.getElementById('confirm-close-account-btn');
+    const cancelBtn = document.getElementById('cancel-close-account-btn');
+
+    if (modal) {
+        modal.addEventListener('close', () => {
+            if (actionsSelect) actionsSelect.value = '';
+        });
+    }
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            if (modal) modal.close();
+            if (actionsSelect) actionsSelect.value = '';
+        });
+    }
+
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', async () => {
+            if (modal) modal.close();
+            await triggerCloseAccount();
+        });
+    }
+
     if (!actionsSelect) return;
 
     actionsSelect.addEventListener('change', async (event) => {
         const action = event.target.value;
         if (!action) return;
 
-        if (action === 'close_account') {
-            const confirmed = window.confirm(
-                '⚠️ Are you sure you want to close all positions and close/lock the account?'
-            );
-            if (confirmed) {
-                await triggerCloseAccount();
-            } else {
-                actionsSelect.value = '';
-            }
+        if (action === 'close_account' || action === 'confirm_close_account') {
+            showCloseAccountModal();
         } else if (action === 'exit_all') {
             const confirmed = window.confirm('Are you sure you want to exit all positions?');
             if (confirmed) {
