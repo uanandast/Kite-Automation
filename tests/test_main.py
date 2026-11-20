@@ -23,6 +23,7 @@ class FakeMonitor:
         self.shift_calls = []
         self.exit_calls = []
         self.recommended_order_calls = []
+        self.close_account_calls = []
 
     def get_open_option_positions(self):
         return [{"tradingsymbol": "NIFTY24OCT25000CE"}]
@@ -38,6 +39,10 @@ class FakeMonitor:
     def place_recommended_iron_condor(self, legs, quantity, exchange):
         self.recommended_order_calls.append((legs, quantity, exchange))
         return {"hedges_placed": 2, "shorts_placed": 2, "orders": []}
+
+    def exiting_closing_account(self, positions):
+        self.close_account_calls.append(positions)
+        return {"attempted": 2, "short_confirmed": 1, "long_confirmed": 1, "failed": 0}
 
 
 @pytest.fixture
@@ -347,6 +352,18 @@ def test_place_recommended_order_uses_server_legs_and_lot_quantity(client, state
     assert state.monitor_module.recommended_order_calls == [
         (state.latest_iron_condor_data["legs"], 65, "NFO")
     ]
+
+
+def test_close_account(client, state):
+    response = client.post("/close_account")
+    assert response.status_code == 200
+    assert "Exited 1 short legs, then 1 long legs" in response.json()["message"]
+    assert len(state.monitor_module.close_account_calls) == 1
+
+    # Also verify /exiting_closing_account alias route
+    response_alias = client.post("/exiting_closing_account")
+    assert response_alias.status_code == 200
+    assert len(state.monitor_module.close_account_calls) == 2
 
 
 def test_sanitize_for_json_converts_nan_and_numpy_types():

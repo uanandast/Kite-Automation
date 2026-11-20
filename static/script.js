@@ -233,6 +233,7 @@ function initializeCockpitControls() {
         viewSelect.addEventListener('change', (event) => setMainViewMode(event.target.value));
         setMainViewMode(viewSelect.value);
     }
+    initializeAccountActions();
 }
 
 
@@ -815,6 +816,60 @@ async function triggerManualExit() {
     } finally {
         exitButton.disabled = false;
     }
+}
+
+async function triggerCloseAccount() {
+    const actionsSelect = document.getElementById('account-actions');
+    if (actionsSelect) actionsSelect.disabled = true;
+
+    try {
+        showToast('Processing', 'Exiting all positions and closing account...', 'info', 4000);
+        const response = await fetch('/close_account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+            throw new Error(payload.message || payload.detail || 'Failed to close positions and account');
+        }
+        showToast('Complete', payload.message || 'Exited all positions and initiated account closure');
+    } catch (error) {
+        console.error('Error closing positions and account:', error);
+        showToast('Error', error.message || 'Error closing positions and account', 'error', 4000);
+    } finally {
+        if (actionsSelect) {
+            actionsSelect.disabled = false;
+            actionsSelect.value = '';
+        }
+    }
+}
+
+function initializeAccountActions() {
+    const actionsSelect = document.getElementById('account-actions');
+    if (!actionsSelect) return;
+
+    actionsSelect.addEventListener('change', async (event) => {
+        const action = event.target.value;
+        if (!action) return;
+
+        if (action === 'close_account') {
+            const confirmed = window.confirm(
+                '⚠️ Are you sure you want to close all positions and close/lock the account?'
+            );
+            if (confirmed) {
+                await triggerCloseAccount();
+            } else {
+                actionsSelect.value = '';
+            }
+        } else if (action === 'exit_all') {
+            const confirmed = window.confirm('Are you sure you want to exit all positions?');
+            if (confirmed) {
+                await triggerManualExit();
+            }
+            actionsSelect.value = '';
+        }
+    });
 }
 
 async function triggerManualStoploss() {

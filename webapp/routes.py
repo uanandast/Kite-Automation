@@ -271,6 +271,39 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
         finally:
             state.finish_operation("exit")
 
+    @router.post("/close_account")
+    @router.post("/exiting_closing_account")
+    def close_account():
+        reserve("close_account", "Account closure and exit is already in progress")
+        try:
+            monitor = monitor_or_503()
+            positions = (
+                monitor.kite.positions()["net"]
+                if hasattr(monitor, "kite") and hasattr(monitor.kite, "positions")
+                else None
+            )
+            fn = getattr(monitor, "exiting_closing_account", None) or getattr(
+                monitor, "Exiting_closing_account", None
+            )
+            if fn is None:
+                raise HTTPException(
+                    status_code=500, detail="exiting_closing_account not found on monitor"
+                )
+            result = fn(positions)
+            message = "Account closure started and all positions exited"
+            if isinstance(result, dict):
+                message = format_exit_message(result)
+            return {"message": message, "details": result}
+        except HTTPException:
+            raise
+        except Exception as error:
+            print(f"❌ Error in close account and exit: {error!s}")
+            raise HTTPException(
+                status_code=500, detail=f"Close account failed: {error!s}"
+            ) from error
+        finally:
+            state.finish_operation("close_account")
+
     @router.post("/manual_stoploss")
     def manual_stoploss():
         reserve("stoploss", "Manual stoploss is already in progress")

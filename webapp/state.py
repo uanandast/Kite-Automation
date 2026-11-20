@@ -33,6 +33,7 @@ class RuntimeState:
                 "shift",
                 "selected_exit",
                 "recommended_entry",
+                "close_account",
             )
         }
     )

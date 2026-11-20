@@ -1266,24 +1266,32 @@ def routine_close(positions):
         os._exit(0)
 
 
-def Exiting_closing_account(positions):
+def Exiting_closing_account(positions=None):
     # global is_exiting
     # is_exiting = True
     try:
-        print("🚨 Max loss threshold breached. Starting account closure and exiting positions...")
+        print("🚨 Starting account closure and exiting positions...")
 
         # Start browser launch & login in background immediately so it runs parallel with REST API order placement
         system_close()
 
-        exit_all_positions_short_then_long(
+        if positions is None:
+            positions = kite.positions()["net"]
+
+        result = exit_all_positions_short_then_long(
             positions,
             allowed_exchanges=ALLOWED_OPTION_EXCHANGES,
             reason="threshold",
         )
         ask_and_sleep_mac(skip_system_close=True)
+        return result
 
     except Exception as e:
-        print(f"❌ Error in P&L monitoring: {e}")
+        print(f"❌ Error in account closure and exiting positions: {e}")
+        return {"error": str(e), "failed": 1}
+
+
+exiting_closing_account = Exiting_closing_account
 
 
 def monitor_spreads():
