@@ -25,6 +25,7 @@
           </select>
           <select id="account-actions" class="rounded border border-rose-700/60 bg-slate-800 px-2 py-0.5 text-xs font-medium text-rose-300 outline-none">
             <option value="" selected disabled>Actions</option>
+            <option value="max_loss">Set Maximum Loss</option>
             <option value="close_account">Close All & Close Account</option>
           </select>
         </div>
@@ -232,8 +233,32 @@
       </div>
     </dialog>
 
+    <dialog id="max-loss-modal" class="m-auto rounded-lg border border-rose-900/70 bg-slate-900 p-0 text-slate-200 shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm">
+      <form id="max-loss-form" class="w-full max-w-md p-6" novalidate>
+        <div class="mb-4 flex items-center justify-between">
+          <label for="max-loss-percent" class="text-base font-bold text-rose-200">Maximum Loss Limit</label>
+          <span id="max-loss-margin" class="font-mono text-[11px] text-slate-500"></span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block text-xs text-slate-400">
+            Percent of margin
+            <input id="max-loss-percent" type="number" min="0.01" max="100" step="0.01" inputmode="decimal" class="mt-1 block w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-rose-500" />
+          </label>
+          <label class="block text-xs text-slate-400">
+            Loss amount (₹)
+            <input id="max-loss-amount" type="number" min="1" step="1" inputmode="decimal" class="mt-1 block w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 outline-none focus:border-rose-500" />
+          </label>
+        </div>
+        <p class="mt-3 text-xs leading-relaxed text-slate-400">Edit either field. The other value is calculated from the current account margin.</p>
+        <div class="mt-5 flex justify-end gap-3">
+          <button id="cancel-max-loss-btn" type="button" class="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-700">Cancel</button>
+          <button id="save-max-loss-btn" type="submit" class="rounded bg-rose-700 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50">Save limit</button>
+        </div>
+      </form>
+    </dialog>
+
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
-    <script src="static/script_r.js?v=3"></script>
+    <script src="static/script_r.js?v=5"></script>
   </body>
 </html>

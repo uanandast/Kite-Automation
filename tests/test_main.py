@@ -24,6 +24,7 @@ class FakeMonitor:
         self.exit_calls = []
         self.recommended_order_calls = []
         self.close_account_calls = []
+        self.max_loss_settings = {"loss_percent": 0.3, "loss_amount": 30.0, "margin": 10_000.0}
 
     def get_open_option_positions(self):
         return [{"tradingsymbol": "NIFTY24OCT25000CE"}]
@@ -43,6 +44,24 @@ class FakeMonitor:
     def exiting_closing_account(self, positions):
         self.close_account_calls.append(positions)
         return {"attempted": 2, "short_confirmed": 1, "long_confirmed": 1, "failed": 0}
+
+    def get_max_loss_settings(self):
+        return self.max_loss_settings
+
+    def set_max_loss(self, *, loss_percent=None, loss_amount=None):
+        if loss_percent is not None:
+            self.max_loss_settings = {
+                "loss_percent": loss_percent,
+                "loss_amount": 10_000.0 * loss_percent / 100,
+                "margin": 10_000.0,
+            }
+        else:
+            self.max_loss_settings = {
+                "loss_percent": loss_amount / 10_000.0 * 100,
+                "loss_amount": loss_amount,
+                "margin": 10_000.0,
+            }
+        return self.max_loss_settings
 
 
 @pytest.fixture
@@ -270,6 +289,27 @@ def test_pnl_returns_monitor_and_market_values(client):
     assert body["available_margin"] == 9_500.0
     assert body["nifty_value"] == 24_500.0
     assert body["timestamp"].endswith("+00:00")
+
+
+def test_max_loss_can_be_read_and_updated_in_percent_or_rupees(client):
+    initial = client.get("/max_loss")
+    by_percent = client.post("/max_loss", json={"loss_percent": 1.25})
+    by_amount = client.post("/max_loss", json={"loss_amount": 500})
+
+    assert initial.status_code == 200
+    assert initial.json()["loss_amount"] == 30.0
+    assert by_percent.status_code == 200
+    assert by_percent.json()["loss_amount"] == 125.0
+    assert by_amount.status_code == 200
+    assert by_amount.json()["loss_percent"] == 5.0
+
+
+def test_max_loss_requires_exactly_one_positive_value(client):
+    response = client.post("/max_loss", json={"loss_percent": 0, "loss_amount": 100})
+    both = client.post("/max_loss", json={"loss_percent": 1, "loss_amount": 100})
+
+    assert response.status_code == 422
+    assert both.status_code == 422
 
 
 def test_pnl_history_returns_current_server_session_samples(client, state):

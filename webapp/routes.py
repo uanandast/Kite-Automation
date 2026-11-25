@@ -20,6 +20,7 @@ from webapp.formatters import (
 from webapp.schemas import (
     ExitLegsRequest,
     IndexRequest,
+    MaxLossRequest,
     RecommendedOrderRequest,
     ShiftRequest,
 )
@@ -253,6 +254,30 @@ def create_router(state: RuntimeState, templates: Jinja2Templates) -> APIRouter:
             state.get_selected_index() if state.get_selected_index else "nifty"
         )
         return {"index": selected_index, "samples": state.get_pnl_history(selected_index)}
+
+    @router.get("/max_loss")
+    def max_loss():
+        monitor = monitor_or_503()
+        try:
+            return sanitize_for_json(monitor.get_max_loss_settings())
+        except AttributeError as error:
+            raise HTTPException(status_code=503, detail="Max loss controls unavailable") from error
+
+    @router.post("/max_loss")
+    def update_max_loss(payload: MaxLossRequest):
+        monitor = monitor_or_503()
+        try:
+            settings = monitor.set_max_loss(
+                loss_percent=payload.loss_percent, loss_amount=payload.loss_amount
+            )
+            return {
+                "message": "Maximum loss limit updated",
+                **sanitize_for_json(settings),
+            }
+        except AttributeError as error:
+            raise HTTPException(status_code=503, detail="Max loss controls unavailable") from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @router.post("/manual_exit")
     def manual_exit():

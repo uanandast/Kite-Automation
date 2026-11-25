@@ -20,6 +20,7 @@ let recommendationNetDelta = null;
 const SPLITTER_STORAGE_KEY = 'dashboardSplitterWidth_v1';
 let observedStraddleLow = null;
 let observedStraddleHigh = null;
+let maxLossInputMode = 'percent';
 const STRIKE_STEP_BY_INDEX = {
     nifty: 50,
     sensex: 100,
@@ -1160,9 +1161,18 @@ function showCloseAccountModal() {
     }
 }
 
+function showMaxLossModal() {
+    const modal = document.getElementById('max-loss-modal');
+    if (modal && typeof modal.showModal === 'function') {
+        loadMaxLossSettings();
+        modal.showModal();
+    }
+}
+
 function initializeAccountActions() {
     const actionsSelect = document.getElementById('account-actions');
     const modal = document.getElementById('close-account-modal');
+    const maxLossModal = document.getElementById('max-loss-modal');
     const confirmBtn = document.getElementById('confirm-close-account-btn');
     const cancelBtn = document.getElementById('cancel-close-account-btn');
 
@@ -1185,6 +1195,19 @@ function initializeAccountActions() {
         });
     }
 
+    if (maxLossModal) {
+        maxLossModal.addEventListener('close', () => {
+            if (actionsSelect) actionsSelect.value = '';
+        });
+        maxLossModal.addEventListener('click', (event) => {
+            if (event.target === maxLossModal) maxLossModal.close();
+        });
+    }
+    const cancelMaxLossBtn = document.getElementById('cancel-max-loss-btn');
+    if (cancelMaxLossBtn) {
+        cancelMaxLossBtn.addEventListener('click', () => maxLossModal?.close());
+    }
+
     if (confirmBtn) {
         confirmBtn.addEventListener('click', async () => {
             if (modal) modal.close();
@@ -1200,6 +1223,8 @@ function initializeAccountActions() {
 
         if (action === 'close_account') {
             showCloseAccountModal();
+        } else if (action === 'max_loss') {
+            showMaxLossModal();
         }
     });
 }
@@ -1599,6 +1624,66 @@ async function loadIndexOptions() {
     }
 }
 
+function formatMaxLossInput(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return '';
+    return numericValue.toFixed(2).replace(/\.00$/, '');
+}
+
+function applyMaxLossSettings(settings) {
+    const percentInput = document.getElementById('max-loss-percent');
+    const amountInput = document.getElementById('max-loss-amount');
+    const marginLabel = document.getElementById('max-loss-margin');
+    if (percentInput) percentInput.value = formatMaxLossInput(settings.loss_percent);
+    if (amountInput) amountInput.value = formatMaxLossInput(settings.loss_amount);
+    if (marginLabel && Number.isFinite(Number(settings.margin))) {
+        marginLabel.textContent = `Margin ₹${formatIndianNumber(Number(settings.margin))}`;
+    }
+}
+
+async function loadMaxLossSettings() {
+    try {
+        const response = await fetch('/max_loss');
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Failed to load maximum loss limit');
+        applyMaxLossSettings(payload);
+    } catch (error) {
+        console.error('Error loading maximum loss settings:', error);
+    }
+}
+
+async function saveMaxLossSettings(event) {
+    event.preventDefault();
+    const percentInput = document.getElementById('max-loss-percent');
+    const amountInput = document.getElementById('max-loss-amount');
+    const saveButton = document.getElementById('save-max-loss-btn');
+    const activeInput = maxLossInputMode === 'amount' ? amountInput : percentInput;
+    const value = Number(activeInput?.value);
+    if (!Number.isFinite(value) || value <= 0) {
+        showToast('Error', 'Enter a maximum loss greater than zero', 'error', 3000);
+        return;
+    }
+
+    const body = activeInput === amountInput ? { loss_amount: value } : { loss_percent: value };
+    if (saveButton) saveButton.disabled = true;
+    try {
+        const response = await fetch('/max_loss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || 'Failed to update maximum loss limit');
+        applyMaxLossSettings(payload);
+        showToast('Complete', payload.message || 'Maximum loss limit updated');
+    } catch (error) {
+        console.error('Error updating maximum loss settings:', error);
+        showToast('Error', error.message || 'Could not update maximum loss limit', 'error', 3000);
+    } finally {
+        if (saveButton) saveButton.disabled = false;
+    }
+}
+
 async function handleIndexChange(event) {
     const indexSelect = event.target;
     const requestedIndex = String(indexSelect.value || '').toLowerCase();
@@ -1633,6 +1718,14 @@ async function handleIndexChange(event) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const maxLossForm = document.getElementById('max-loss-form');
+    if (maxLossForm) {
+        maxLossForm.addEventListener('submit', saveMaxLossSettings);
+        const percentInput = document.getElementById('max-loss-percent');
+        const amountInput = document.getElementById('max-loss-amount');
+        if (percentInput) percentInput.addEventListener('input', () => { maxLossInputMode = 'percent'; });
+        if (amountInput) amountInput.addEventListener('input', () => { maxLossInputMode = 'amount'; });
+    }
     const exitButton = document.getElementById('manual-exit-btn');
     if (exitButton) {
         exitButton.addEventListener('click', triggerManualExit);

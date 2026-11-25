@@ -74,9 +74,50 @@ def get_margin():
 margin = get_margin()
 margin_buffer = MARGIN_BUFFER
 threshold = -margin * margin_buffer
+max_loss_lock = Lock()
 print(
     f"🚨 Threshold for exiting positions: ₹{threshold:.2f} ({round(margin_buffer * 100, 2)}% of margin)"
 )
+
+
+def get_max_loss_settings():
+    """Return the active account-level loss limit in both supported units."""
+    with max_loss_lock:
+        loss_amount = abs(float(threshold))
+        loss_percent = (loss_amount / margin * 100) if margin > 0 else 0.0
+        return {
+            "loss_percent": loss_percent,
+            "loss_amount": loss_amount,
+            "margin": float(margin),
+        }
+
+
+def set_max_loss(*, loss_percent=None, loss_amount=None):
+    """Change the live account loss threshold without restarting the monitor."""
+    if (loss_percent is None) == (loss_amount is None):
+        raise ValueError("Provide exactly one of loss_percent or loss_amount")
+
+    global margin_buffer, threshold
+    with max_loss_lock:
+        if margin <= 0:
+            raise ValueError("Cannot set a max loss until account margin is available")
+        if loss_amount is not None:
+            amount = float(loss_amount)
+            percent = amount / margin * 100
+        else:
+            percent = float(loss_percent)
+            amount = margin * percent / 100
+        if not 0 < percent <= 100:
+            raise ValueError("Max loss percentage must be greater than 0 and at most 100")
+
+        margin_buffer = percent / 100
+        threshold = -amount
+        print(f"🚨 Max loss updated: ₹{amount:.2f} ({percent:.4g}% of margin)")
+        return {
+            "loss_percent": percent,
+            "loss_amount": amount,
+            "margin": float(margin),
+        }
 
 
 def beep():
