@@ -59,6 +59,11 @@ OPERATIONAL_EXCEPTIONS = (
 # Track SL order IDs and matched hedge legs
 placed_sl_orders = {}
 
+# Optional startup override in rupees. Set a positive value (for example,
+# 5000.0) to use a fixed maximum loss instead of MARGIN_BUFFER. Dashboard
+# changes still take effect immediately for the running process.
+HARDCODED_MAX_LOSS_AMOUNT: float | None = 1500
+
 
 def get_margin():
     margin = (
@@ -72,8 +77,14 @@ def get_margin():
 
 
 margin = get_margin()
-margin_buffer = MARGIN_BUFFER
-threshold = -margin * margin_buffer
+if HARDCODED_MAX_LOSS_AMOUNT is not None:
+    if HARDCODED_MAX_LOSS_AMOUNT <= 0:
+        raise ValueError("HARDCODED_MAX_LOSS_AMOUNT must be greater than zero")
+    threshold = -float(HARDCODED_MAX_LOSS_AMOUNT)
+    margin_buffer = abs(threshold) / margin if margin > 0 else 0.0
+else:
+    margin_buffer = MARGIN_BUFFER
+    threshold = -margin * margin_buffer
 max_loss_lock = Lock()
 print(
     f"🚨 Threshold for exiting positions: ₹{threshold:.2f} ({round(margin_buffer * 100, 2)}% of margin)"
