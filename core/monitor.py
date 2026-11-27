@@ -466,31 +466,31 @@ def place_recommended_iron_condor(legs, quantity, exchange):
         "shorts_placed": 0,
         "orders": [],
     }
-    for name in ("hedge_pe", "hedge_ce"):
+    # Give Kite a moment to reflect each completed leg in the available margin
+    # before submitting the next one.  This is intentionally limited to the
+    # P-O flow so regular entries and exits retain their current timing.
+    leg_sequence = (
+        ("hedge_pe", "BUY", "hedges_placed"),
+        ("hedge_ce", "BUY", "hedges_placed"),
+        ("short_pe", "SELL", "shorts_placed"),
+        ("short_ce", "SELL", "shorts_placed"),
+    )
+    for position, (name, transaction_type, placed_key) in enumerate(leg_sequence):
         order_ids = _place_market_entry(
             {
                 "exchange": exchange,
                 "tradingsymbol": symbols[name],
-                "transaction_type": "BUY",
+                "transaction_type": transaction_type,
                 "product": "NRML",
             },
             quantity,
         )
-        result["hedges_placed"] += 1
-        result["orders"].append({"leg": name, "side": "BUY", "order_ids": order_ids})
-
-    for name in ("short_pe", "short_ce"):
-        order_ids = _place_market_entry(
-            {
-                "exchange": exchange,
-                "tradingsymbol": symbols[name],
-                "transaction_type": "SELL",
-                "product": "NRML",
-            },
-            quantity,
+        result[placed_key] += 1
+        result["orders"].append(
+            {"leg": name, "side": transaction_type, "order_ids": order_ids}
         )
-        result["shorts_placed"] += 1
-        result["orders"].append({"leg": name, "side": "SELL", "order_ids": order_ids})
+        if position < len(leg_sequence) - 1:
+            time.sleep(0.2)
 
     return result
 
